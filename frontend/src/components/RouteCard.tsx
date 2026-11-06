@@ -1,5 +1,7 @@
 import { formatShortTime } from '../lib/checkpoint'
-import { formatAvgRisk, formatDuration } from '../lib/format'
+import { formatAvgRisk, formatDuration, formatMiles } from '../lib/format'
+import { RISK_COLORS } from '../lib/risk'
+import { riskNote, riskShares } from '../lib/routeRisk'
 import type { Route } from '../types/api'
 
 interface Props {
@@ -41,11 +43,11 @@ export default function RouteCard({ route, originLabel, destinationLabel, select
 
       <span className="stats">
         <span className="stat">
-          <span className="stat-value">{summary.severe_miles}</span>
+          <span className="stat-value">{formatMiles(summary.severe_miles)}</span>
           <span className="stat-label">Severe mi</span>
         </span>
         <span className="stat">
-          <span className="stat-value">{summary.high_miles}</span>
+          <span className="stat-value">{formatMiles(summary.high_miles)}</span>
           <span className="stat-label">High mi</span>
         </span>
         <span className="stat">
@@ -56,6 +58,16 @@ export default function RouteCard({ route, originLabel, destinationLabel, select
           <span className="stat-value">{formatDuration(summary.duration_minutes)}</span>
           <span className="stat-label">Duration</span>
         </span>
+      </span>
+
+      {/* Where the miles are, so that 0 / 0 / 0.00 reads as "all Low" and not as "not calculated". */}
+      <span className="rc-risk">
+        <span className="risk-bar" aria-hidden="true">
+          {riskShares(summary.miles_by_level).map((share) => (
+            <span key={share.level} style={{ flex: share.miles, background: RISK_COLORS[share.level] }} />
+          ))}
+        </span>
+        <span className="risk-note">{riskNote(summary.miles_by_level)}</span>
       </span>
     </button>
   )

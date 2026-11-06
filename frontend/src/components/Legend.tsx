@@ -1,11 +1,14 @@
-import { OTHER_ROUTE_COLOR, RISK_COLORS, RISK_LABELS, RISK_LEVELS } from '../lib/risk'
-import { heatRampCss } from '../map/heat'
+import { RISK_COLORS, RISK_LABELS, RISK_LEVELS } from '../lib/risk'
 
-/** The color key. Always on screen, on top of the map. */
+/**
+ * The color key for the routes and the checkpoints. Always on screen. It is small on purpose: it
+ * sits in a corner of the map and must not cover the routes (the scale of the weather shading is
+ * with the forecast slider, which it belongs to).
+ */
 export default function Legend() {
   return (
-    <div className="legend" role="group" aria-label="Risk levels">
-      <p className="legend-title">Risk level</p>
+    <div className="legend" role="group" aria-label="Risk levels" data-map-overlay>
+      <p className="legend-title">Risk at arrival time</p>
       <ul>
         {RISK_LEVELS.map((level) => (
           <li key={level}>
@@ -13,28 +16,8 @@ export default function Legend() {
             {RISK_LABELS[level]}
           </li>
         ))}
-        <li>
-          <span className="swatch" style={{ background: OTHER_ROUTE_COLOR }} />
-          Other routes
-        </li>
       </ul>
-      <p className="legend-note">Route and markers: when the truck gets there.</p>
-
-      <p className="legend-title legend-shading">Shading: forecast at the slider's hour</p>
-      <div className="legend-ramp-row">
-        <div className="legend-ramp" style={{ background: heatRampCss(1.7) }} />
-        <span className="legend-end">
-          <span className="swatch" style={{ background: RISK_COLORS.no_travel }} />
-          No Travel
-        </span>
-      </div>
-      <div className="legend-bands" aria-hidden="true">
-        <span>Low</span>
-        <span>Moderate</span>
-        <span>High</span>
-        <span>Severe</span>
-      </div>
-      <p className="legend-note">Calm is clear; the color deepens as wind, rain or snow gets stronger.</p>
+      <p className="legend-note">Other routes: thinner, paler</p>
     </div>
   )
 }

@@ -7,9 +7,30 @@ export type IntervalMiles = 10 | 25 | 50
 /** [lon, lat] (GeoJSON order). */
 export type Coordinate = [number, number]
 
+/** A place the user chose from the list, or "my location": sent as it is, no address lookup. */
+export interface PickedPlace {
+  label: string
+  lat: number
+  lon: number
+}
+
+/** What the user typed, or a place they chose. */
+export type PlaceInput = string | PickedPlace
+
+/** One choice in the From / To list (GET /api/places). */
+export interface PlaceSuggestion extends PickedPlace {
+  id: string
+  /** `place` (a building, a station ...), `address`, or `area` (a city, a neighbourhood). */
+  kind: 'place' | 'address' | 'area'
+  /** The main line ("Willis Tower"). */
+  name: string
+  /** The line under it (the address). */
+  detail: string
+}
+
 export interface AnalyzeRequest {
-  origin: string
-  destination: string
+  origin: PlaceInput
+  destination: PlaceInput
   /** ISO 8601, must not be in the past. */
   departure: string
   load_weight_lb: number
@@ -53,10 +74,12 @@ export interface RouteSummary {
   duration_minutes: number
   /** ISO 8601 UTC. */
   arrival: string
+  /** Miles at each level, two decimals. A level that has any miles is never 0. */
   miles_by_level: Record<RiskLevel, number>
+  /** Two decimals; above 0 whenever the route has a Severe (High) stretch, however short. */
   severe_miles: number
   high_miles: number
-  /** Distance-weighted average of low=0 ... no_travel=4, two decimals. */
+  /** Distance-weighted average of low=0 ... no_travel=4, four decimals; never 0 unless all Low. */
   avg_risk: number
   has_no_travel: boolean
 }
@@ -120,6 +143,9 @@ export type ApiErrorCode =
   | 'FORECAST_OUT_OF_RANGE'
   | 'ROUTING_UNAVAILABLE'
   | 'WEATHER_UNAVAILABLE'
+  | 'RATE_LIMITED'
+  | 'NOT_FOUND'
+  | 'INTERNAL_ERROR'
 
 export interface ApiError {
   error: {
@@ -128,5 +154,7 @@ export interface ApiError {
     field?: 'origin' | 'destination' | 'departure' | 'load_weight_lb' | 'interval_miles'
     /** ISO 8601, only for FORECAST_OUT_OF_RANGE: the last hour with a forecast (omitted when unknown). */
     forecast_end?: string
+    /** Only for RATE_LIMITED: how long to wait before the next request. */
+    retry_after_seconds?: number
   }
 }

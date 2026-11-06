@@ -69,9 +69,22 @@ describe('weatherGlyph when everything is Low', () => {
   })
 })
 
+describe('weatherGlyph when a load rule raised the level', () => {
+  it('shows wind, because the load rules are about wind', () => {
+    // wind 40 mph is High; with a 45,000 lb load it is Severe. Snow alone is High too.
+    expect(weatherGlyph({ ...at({ wind: 'high', snow: 'high' }), load_escalated: true })).toBe('wind')
+    // wind 50 mph is Severe; over 30,000 lb it is No Travel. Snow alone is Severe.
+    expect(weatherGlyph({ ...at({ wind: 'severe', snow: 'severe', rain: 'high' }), load_escalated: true })).toBe('wind')
+  })
+
+  it('keeps the usual rule when the load did not raise anything', () => {
+    expect(weatherGlyph({ ...at({ wind: 'high', snow: 'high' }), load_escalated: false })).toBe('snow')
+  })
+})
+
 describe('glyph names', () => {
   it('names each picture as it is shown', () => {
-    expect(GLYPH_LABELS).toEqual({ clear: 'Clear', drizzle: 'Light rain', rain: 'Rain', snow: 'Snow', wind: 'Wind' })
+    expect(GLYPH_LABELS).toEqual({ clear: 'Calm', drizzle: 'Light rain', rain: 'Rain', snow: 'Snow', wind: 'Wind' })
   })
 
   it('every glyph has a label', () => {

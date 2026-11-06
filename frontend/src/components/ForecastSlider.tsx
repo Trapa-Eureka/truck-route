@@ -1,5 +1,7 @@
 import type { CSSProperties } from 'react'
 import { forecastHourLabel, type HeatmapStatus } from '../lib/heatmap'
+import { RISK_COLORS } from '../lib/risk'
+import { heatRampCss } from '../map/heat'
 import Icon from './Icon'
 
 interface Props {
@@ -10,12 +12,15 @@ interface Props {
   truckText: string | null
 }
 
-/** The 0 to 48 hour forecast slider, over the bottom of the map. */
+/**
+ * The 0 to 48 hour forecast slider, over the bottom of the map, with the scale of the shading it
+ * controls: the heatmap's colors, from calm to No Travel.
+ */
 export default function ForecastSlider({ status, hour, onHourChange, truckText }: Props) {
   if (status.kind === 'idle') return null
 
   return (
-    <section className="forecast" aria-label="Forecast time">
+    <section className="forecast" aria-label="Forecast time" data-map-overlay>
       {status.kind === 'loading' && <p className="forecast-message">Loading the 48-hour forecast…</p>}
 
       {status.kind === 'error' && (
@@ -48,6 +53,22 @@ export default function ForecastSlider({ status, hour, onHourChange, truckText }
             <span>Departure</span>
             <span>+24 h</span>
             <span>+48 h</span>
+          </div>
+          <div className="heat-scale">
+            <span className="heat-scale-title">Weather shading</span>
+            <div className="heat-scale-bar">
+              <div className="heat-ramp" style={{ background: heatRampCss(1.7) }} role="img" aria-label="Shading colors, from calm weather to No Travel" />
+              <div className="heat-bands" aria-hidden="true">
+                <span>Low</span>
+                <span>Moderate</span>
+                <span>High</span>
+                <span>Severe</span>
+              </div>
+            </div>
+            <span className="heat-end">
+              <span className="swatch" style={{ background: RISK_COLORS.no_travel }} />
+              No Travel
+            </span>
           </div>
           {truckText && (
             <p className="forecast-truck">

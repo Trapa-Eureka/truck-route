@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { checkpoint, route } from '../lib/testData'
-import { checkpointDots, placeDots, riskSegments, routeLines, selectedLine } from './geo'
+import { checkpointDots, placeDots, riskSegments, routeDots, routeLines, routeToSelect, selectedLine } from './geo'
 
 describe('routeLines', () => {
   it('has one line per route, flagging the selected one', () => {
@@ -27,21 +27,91 @@ describe('routeLines', () => {
 })
 
 describe('riskSegments', () => {
-  it('has one line per segment, with its level', () => {
-    const r = {
-      ...route('A'),
-      segments: [
-        { level: 'low' as const, coordinates: [[0, 0], [1, 1]] as [number, number][] },
-        { level: 'severe' as const, coordinates: [[1, 1], [2, 2]] as [number, number][] },
-      ],
-    }
-    const collection = riskSegments(r)
-    expect(collection.features.map((f) => f.properties.level)).toEqual(['low', 'severe'])
-    expect(collection.features[1].geometry.coordinates).toEqual([[1, 1], [2, 2]])
+  const cut = (id: string, levels: ('low' | 'severe' | 'high')[]) => ({
+    ...route(id),
+    segments: levels.map((level, i) => ({ level, coordinates: [[i, i], [i + 1, i + 1]] as [number, number][] })),
   })
 
-  it('is empty when no route is selected', () => {
-    expect(riskSegments(undefined).features).toEqual([])
+  it('has one line per segment, with its level', () => {
+    const collection = riskSegments([cut('A', ['low', 'severe'])], 'A')
+    expect(collection.features.map((f) => f.properties.level)).toEqual(['low', 'severe'])
+    expect(collection.features[1].geometry.coordinates).toEqual([[1, 1], [2, 2]])
+    expect(collection.features[1].geometry.type).toBe('LineString')
+  })
+
+  it('has the segments of every route, each with its route and whether that route is selected', () => {
+    const collection = riskSegments([cut('A', ['low', 'severe']), cut('B', ['high']), cut('C', ['low'])], 'B')
+    expect(collection.features.map((f) => [f.properties.id, f.properties.level, f.properties.selected])).toEqual([
+      ['A', 'low', false],
+      ['A', 'severe', false],
+      ['B', 'high', true],
+      ['C', 'low', false],
+    ])
+  })
+
+  it('marks nothing as selected without a selection', () => {
+    expect(riskSegments([cut('A', ['low'])], null).features[0].properties.selected).toBe(false)
+  })
+
+  it('is empty without routes', () => {
+    expect(riskSegments([], null).features).toEqual([])
+  })
+})
+
+describe('routeDots', () => {
+  const a = route('A', {
+    checkpoints: [checkpoint({ index: 0, level: 'low' }), checkpoint({ index: 1, level: 'severe', lat: 42.5, lon: -88.1 })],
+  })
+  const b = route('B', { checkpoints: [checkpoint({ index: 0, level: 'moderate' })] })
+
+  it('has a dot for every checkpoint of every route: none is left out', () => {
+    const dots = routeDots([a, b], 'A')
+    expect(dots.features.map((f) => [f.properties.id, f.properties.index, f.properties.level, f.properties.selected])).toEqual([
+      ['A', 0, 'low', true],
+      ['A', 1, 'severe', true],
+      ['B', 0, 'moderate', false],
+    ])
+  })
+
+  it('puts each dot at its checkpoint as (lon, lat)', () => {
+    const dots = routeDots([a, b], 'A')
+    expect(dots.features[1].geometry).toEqual({ type: 'Point', coordinates: [-88.1, 42.5] })
+  })
+
+  it('follows the selection', () => {
+    expect(routeDots([a, b], 'B').features.map((f) => f.properties.selected)).toEqual([false, false, true])
+    expect(routeDots([a, b], null).features.map((f) => f.properties.selected)).toEqual([false, false, false])
+  })
+
+  it('is empty without routes', () => {
+    expect(routeDots([], null).features).toEqual([])
+  })
+})
+
+describe('routeToSelect', () => {
+  it('chooses the route that was clicked', () => {
+    expect(routeToSelect(['B'], 'A')).toBe('B')
+    expect(routeToSelect(['C'], null)).toBe('C')
+  })
+
+  it('keeps the selected route where routes share a road and the click hits several', () => {
+    expect(routeToSelect(['B', 'A'], 'A')).toBeNull()
+    expect(routeToSelect(['A', 'B', 'C'], 'C')).toBeNull()
+    expect(routeToSelect(['A'], 'A')).toBeNull()
+  })
+
+  it('takes the first route when the selected one is not under the pointer', () => {
+    expect(routeToSelect(['B', 'C'], 'A')).toBe('B')
+    expect(routeToSelect(['C', 'B'], null)).toBe('C')
+  })
+
+  it('changes nothing when no route is under the pointer', () => {
+    expect(routeToSelect([], 'A')).toBeNull()
+    expect(routeToSelect([undefined, 7, null], 'A')).toBeNull()
+  })
+
+  it('skips what is not a route id', () => {
+    expect(routeToSelect([undefined, 'B'], 'A')).toBe('B')
   })
 })
 

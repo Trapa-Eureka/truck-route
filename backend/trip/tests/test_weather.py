@@ -14,6 +14,7 @@ from trip.weather import (
     nearest_hour,
     parse_range_error,
     parse_response,
+    precipitation_hour,
     round_location,
 )
 
@@ -107,6 +108,41 @@ class TestNearestHour:
 # -------------------------------------------------------------------------- round_location
 
 
+class TestPrecipitationHour:
+    """Rain and snow at hour H are the sums from H-1 to H: use the hour that contains the time."""
+
+    def test_exactly_on_the_hour_is_that_hour(self):
+        assert precipitation_hour(H12) == H12
+
+    @pytest.mark.parametrize("minutes, seconds", [(0, 1), (5, 0), (29, 59), (30, 0), (59, 59)])
+    def test_any_time_inside_an_hour_uses_the_hour_that_ends_it(self, minutes, seconds):
+        moment = H12 + timedelta(minutes=minutes, seconds=seconds)
+        assert precipitation_hour(moment) == H12 + timedelta(hours=1)
+
+    def test_a_microsecond_past_the_hour_is_already_the_next_one(self):
+        assert precipitation_hour(H12 + timedelta(microseconds=1)) == H12 + timedelta(hours=1)
+
+    def test_it_differs_from_the_nearest_hour_only_before_the_half_hour(self):
+        for minutes in range(0, 60):
+            moment = H12 + timedelta(minutes=minutes)
+            same = precipitation_hour(moment) == nearest_hour(moment)
+            assert same == (minutes == 0 or minutes >= 30)
+
+    def test_other_time_zones_are_converted_to_utc(self):
+        moment = datetime(2026, 11, 9, 6, 10, tzinfo=timezone(timedelta(hours=-6)))  # 12:10 UTC
+        result = precipitation_hour(moment)
+        assert result == H12 + timedelta(hours=1)
+        assert result.utcoffset() == timedelta(0)
+
+    def test_across_midnight(self):
+        moment = datetime(2026, 11, 9, 23, 5, tzinfo=UTC)
+        assert precipitation_hour(moment) == datetime(2026, 11, 10, 0, tzinfo=UTC)
+
+    def test_naive_time_is_refused(self):
+        with pytest.raises(ValueError):
+            precipitation_hour(datetime(2026, 11, 9, 12))
+
+
 class TestRoundLocation:
     def test_rounds_to_two_decimals(self):
         assert round_location(41.8795, -87.6497) == (41.88, -87.65)
@@ -153,6 +189,15 @@ class TestParseResponse:
         assert series.sample_at(H12 + timedelta(hours=1)) == WeatherSample(
             wind_mph=20.0, rain_in_hr=0.25, snow_in_hr=0.6
         )
+
+    def test_a_number_too_large_for_a_float_is_unavailable_not_a_crash(self):
+        with pytest.raises(WeatherUnavailable):
+            parse_response(simple_entry(wind=[10**400, 20.0]), 1)
+
+    def test_rain_and_showers_that_add_up_to_infinity_are_unavailable(self):
+        # Each value is finite; the sum is not. It must not be cached or classified.
+        with pytest.raises(WeatherUnavailable):
+            parse_response(simple_entry(rain=[1e308, 0.2], showers=[1e308, 0.05]), 1)
 
     def test_times_are_utc_aware(self):
         [series] = parse_response(simple_entry(), 1)

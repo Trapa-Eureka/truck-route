@@ -33,10 +33,10 @@ Load rules:
 
 ## Screen layout
 
-- **Map**: a quiet gray base map that shows the 3 routes together. The selected route is drawn from the origin to the destination (a short animation), its line changes color by risk level along its length, and the other routes are plain gray lines. A weather picture (clear, light rain, rain, snow, wind) in a circle of the risk color marks each checkpoint, and the legend is always visible.
-- **Route cards**: each route shows only 4 numbers: `Severe mi`, `High mi`, `Avg risk`, `Duration`.
-- **Recommendation reason**: the recommended route shows its reason in one line (for example "0 severe miles, 20 min slower than Route B").
-- **Checkpoints**: each checkpoint shows its estimated arrival time (ETA), the weather at that time, and its risk level. Click one on the map or in the list: wind, rain and snow appear as three picture tiles with their values and levels.
+- **Map**: a quiet gray base map that shows the 3 routes together, **all of them in the risk colors**: each line changes color by risk level along its length. The selected route is bold and is drawn from the origin to the destination (a short animation); the other routes are thinner and paler. **Every checkpoint of every route is a dot** in its level's color. On the selected route a checkpoint also carries a weather picture (calm, light rain, rain, snow, wind) in a white circle with a ring in the risk color; where pictures would overlap (a long route seen whole) some are left out, the worse level staying, and the dot under them remains. On a very long route seen whole the dots themselves get smaller and finally give way to the line, which is cut at every checkpoint's stretch and shows each one's level by its color. The legend is always visible, and the map keeps the routes clear of the legend, the trip bar and the slider when it zooms to them.
+- **Route cards**: each route shows only 4 numbers: `Severe mi`, `High mi`, `Avg risk`, `Duration`. Under them a thin bar and one line say where the route's miles are by level ("All Low along the route", or "Low 980 mi · Moderate 26 mi"). A stretch shorter than half a mile shows as "<1", never as 0.
+- **Recommendation reason**: the recommended route shows its reason in one line, compared with the runner-up (for example "Fewer severe miles than Route B (0 vs 25), 20 min slower than Route B.").
+- **Checkpoints**: each checkpoint shows its estimated arrival time (ETA), the weather at that time, and its risk level. Click one on the map or in the list: wind, rain and snow appear as three picture tiles with their values and levels. The list shows the first 10 checkpoints, with `Load more` and `Show all`.
 - **No Travel warning**: if a route has a No Travel stretch, a large warning banner is shown.
 - **Forecast slider**: moving the 0–48 hour slider changes the weather heatmap and the truck's expected position on the map together. Hour 0 is the departure hour (the departure rounded to the nearest hour) and the date and time of the chosen hour are shown next to the slider. The whole 48 hours are loaded once, so moving the slider never calls the server.
 
@@ -46,9 +46,12 @@ Where the assignment document is silent, these choices were made.
 
 **Inputs**
 
-- Addresses are looked up in the United States only, and the **first match** is used. The name it resolved to is shown, so a wrong match is visible (for example "Toronto, Canada" resolves to Toronto, Kansas).
+- Places are in the **United States only**. The From / To fields list matching places, addresses and cities while you type (from 3 characters), and a button fills the field from the browser's position. A text that was typed and not chosen from the list resolves to its **first match**; the name it resolved to is shown, so a wrong match is visible. A place outside the US is refused, also when the request is built by hand.
+- All times on screen are in **the browser's time zone** (it is named next to the form and the checkpoint list); the API works in UTC.
 - A departure up to 5 minutes in the past is accepted, because a form that says "now" is already a few seconds old when it arrives. Anything earlier is refused.
 - If the origin and the destination are the same place, the request is refused.
+- The routing service promises "up to 3" routes. If it returns fewer, the app shows exactly those and says so ("Only 2 routes available for this trip."); it never invents a route.
+- Requests are limited per client address (6 analyses a minute and 60 a day), because every analysis spends free-tier quota that all visitors share. Over the limit the app says how long to wait.
 
 **Risk levels**
 
@@ -63,27 +66,31 @@ Where the assignment document is silent, these choices were made.
 - Checkpoints are placed at the origin (mile 0), at every sampling interval, and at the destination.
 - **Severe and High miles are computed from the stretch length between checkpoints, not from the number of checkpoints.** Each checkpoint stands for the stretch from the midpoint to its previous checkpoint to the midpoint to its next checkpoint, and that length is added to the checkpoint's level. The miles of all levels add up to the route's total distance.
 - Average risk is the stretch-length-weighted average after converting levels to numbers (Low 0, Moderate 1, High 2, Severe 3, No Travel 4).
+- The interval decides how finely the weather is sampled, so the numbers can differ between intervals: a storm 15 miles wide can fall between two 50-mile checkpoints and be caught at 10 miles. 10 miles is the most precise and the slowest.
+- **An ETA assumes non-stop driving.** It is the departure time plus the routing service's travel time to that point (truck speeds and, for a departure close to now, live traffic); rest breaks and fuel stops are not modelled, and the weather does not slow the truck. On a trip of more than a day the later ETAs are therefore optimistic.
 
 **Route recommendation**
 
 - The 4 criteria are compared in order, and the next criterion is used only when the previous one is tied. They are never blended into a weighted score.
-- Ties are decided on the values shown on screen (miles to 1 mile, average risk to 2 decimals, travel time to the minute), rounding halves up (24.5 miles shows as 25). If two routes tie on everything, the route the routing service listed first wins.
+- Severe miles, High miles and average risk are compared **as computed, not as rounded for the screen**: 24.6 Severe miles beats 25.4 although a card shows 25 for both, and the reason line then shows the decimals ("24.6 vs 25.4"). Travel time is compared in whole minutes. Travel time still decides often, because on a calm day every route has exactly 0 Severe miles, 0 High miles and an average of 0. If two routes tie on everything, the route the routing service listed first wins.
 - A route with any No Travel stretch is excluded from the recommendation. If all 3 routes have one, no route is recommended and the reason is shown.
 
 **Weather forecast**
 
 - Weather is forecast-based, not real-time. Each checkpoint's weather is looked up for the truck's estimated arrival time.
-- A checkpoint uses the forecast for the **hour nearest to its estimated arrival** (exactly on the half hour goes to the later hour). Wind is the value at that hour; rain and snow are the amounts in the preceding hour, in inches per hour.
+- The forecast comes in whole hours. **Wind** is a value at an instant, so a checkpoint uses the hour **nearest to its estimated arrival** (exactly on the half hour goes to the later hour). **Rain and snow** are amounts over an hour, so a checkpoint uses the hour **that contains its arrival**: for an arrival at 12:20, the rain that falls from 12:00 to 13:00 (inches per hour).
+- Rain is the forecast's rain plus showers. Snow is the depth of fresh snow in inches, not its water equivalent.
+- The forecast reaches about 15 days ahead. No latest departure is imposed: a trip is refused only when an hour it needs is past the end of the forecast, and the message says until when the forecast is available.
 - Missing forecast data is **never treated as 0**. If the needed time is past the end of the forecast, or the weather service fails, the app shows an error instead of a risk level.
-- Heatmap slider hour 0 is the departure time. The date and time are shown next to the slider so it is clear which moment the forecast is for.
-- If an estimated arrival time falls outside the weather forecast range, the value is not estimated and an error is shown.
+- Heatmap slider hour 0 is the departure time (rounded to the nearest hour). The date and time are shown next to the slider so it is clear which moment the forecast is for.
+- The heatmap shows **the same risk scale as the routes**, continuously: the worst of wind, rain and snow placed between the table's thresholds, load rules included, on a grid of points about 34 miles apart within 40 miles of the routes. It is the weather at the slider's hour everywhere at once, while a route's colors are the weather when the truck reaches each point, so the two answer different questions and can differ at the same place.
 
 ## Tech stack
 
 - Frontend: React + TypeScript (Vite) + MapLibre (WebGL map)
 - Backend: Django + Django REST Framework (no Django admin: the PDF asks for none and the backend stores no data)
 - External APIs (third-party)
-  - Routing and geocoding: [TomTom](https://developer.tomtom.com/) Routing API (truck mode) and Geocoding API
+  - Routing and places: [TomTom](https://developer.tomtom.com/) Routing API (truck mode) and Search API (Fuzzy Search for the From / To list and for typed text, reverse geocoding for "my location")
   - Weather forecast: [Open-Meteo](https://open-meteo.com/) (CC BY 4.0)
 
 ## Documentation

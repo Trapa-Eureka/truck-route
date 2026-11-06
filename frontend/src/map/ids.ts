@@ -4,6 +4,7 @@ export const SOURCE = {
   routes: 'routes',
   risk: 'risk-segments',
   draw: 'draw',
+  dots: 'route-dots',
   checkpoints: 'checkpoints',
   places: 'places',
   heat: 'heat',
@@ -11,10 +12,13 @@ export const SOURCE = {
 
 export const LAYER = {
   routeHit: 'route-hit',
+  otherCasing: 'other-casing',
+  riskOther: 'risk-other',
+  otherDots: 'other-dots',
   routeCasing: 'route-casing',
-  routeOther: 'route-other',
   riskLine: 'risk-line',
   routeDraw: 'route-draw',
+  checkpointDots: 'checkpoint-dots',
   checkpoints: 'checkpoints',
   checkpointActive: 'checkpoint-active',
   places: 'places',

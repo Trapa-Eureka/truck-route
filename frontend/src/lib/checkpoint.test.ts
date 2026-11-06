@@ -92,5 +92,8 @@ describe('titles and times', () => {
     expect(formatShortTime('2026-11-06T19:00:00Z', 'America/Chicago')).toBe('Fri 1:00 PM')
     expect(formatShortTime('2026-11-07T01:30:00Z', 'America/Chicago')).toBe('Fri 7:30 PM')
     expect(formatShortTime('2026-11-07T01:30:00Z', 'UTC')).toBe('Sat 1:30 AM')
+    // to the nearest minute, as the duration is
+    expect(formatShortTime('2026-11-07T01:30:29Z', 'UTC')).toBe('Sat 1:30 AM')
+    expect(formatShortTime('2026-11-07T01:30:30Z', 'UTC')).toBe('Sat 1:31 AM')
   })
 })

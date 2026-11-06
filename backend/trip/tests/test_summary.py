@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from trip.risk import RiskLevel
-from trip.summary import RouteSummary, Stretch, round_half_up, summarize_route
+from trip.summary import RouteSummary, Stretch, round_half_up, shown, summarize_route
 
 UTC = timezone.utc
 DEPART = datetime(2026, 11, 9, 14, 0, tzinfo=UTC)
@@ -80,16 +80,48 @@ class TestMilesByLevel:
     def test_distance_rounds_half_up(self):
         assert summary([(L, 10.25), (M, 10.25)]).distance_miles == 21  # 20.5
 
-    def test_each_level_rounds_half_up(self):
-        s = summary([(S, 24.5), (H, 0.5), (M, 2.5)])
-        assert (s.severe_miles, s.high_miles, s.miles_by_level[M]) == (25, 1, 3)
+    def test_each_level_keeps_its_exact_miles(self):
+        s = summary([(S, 24.5), (H, 0.5), (M, 2.5), (S, 0.04)])
+        assert (s.severe_miles, s.high_miles, s.miles_by_level[M]) == (24.54, 0.5, 2.5)
+        assert s.miles_by_level[S] == s.severe_miles and s.miles_by_level[H] == s.high_miles
+
+    def test_float_noise_is_removed(self):
+        s = summary([(S, 0.1), (S, 0.2), (L, 10.0)])
+        assert s.severe_miles == 0.3  # not 0.30000000000000004
+        assert s.miles_by_level[M] == 0 and str(s.miles_by_level[M]) == "0.0"  # never -0.0
 
     def test_level_miles_add_up_to_distance_within_rounding(self):
         rng = random.Random(7)
         for _ in range(200):
             stretches = [(rng.choice(list(RiskLevel)), rng.uniform(0.1, 40)) for _ in range(rng.randint(1, 30))]
             s = summary(stretches)
-            assert abs(sum(s.miles_by_level.values()) - s.distance_miles) <= 2.5
+            assert abs(sum(s.miles_by_level.values()) - s.distance_miles) <= 0.5
+
+
+# ------------------------------------------------------------------------------------ shown
+
+
+class TestShown:
+    @pytest.mark.parametrize(
+        "value, decimals, expected",
+        [(24.544, 2, 24.54), (24.545, 2, 24.55), (0.2, 2, 0.2), (0.0051, 4, 0.0051), (0.32505, 4, 0.3251), (0.0, 2, 0.0), (0.0, 4, 0.0)],
+    )
+    def test_rounds_half_up(self, value, decimals, expected):
+        assert shown(value, decimals) == expected
+
+    @pytest.mark.parametrize(
+        "value, decimals, expected",
+        [(0.004, 2, 0.01), (0.000001, 2, 0.01), (0.00004, 4, 0.0001), (0.0000001, 4, 0.0001)],
+    )
+    def test_an_amount_above_zero_never_becomes_zero(self, value, decimals, expected):
+        # A route with a Severe stretch must not read "0 severe miles" or "All Low".
+        assert shown(value, decimals) == expected
+
+    def test_a_tiny_stretch_end_to_end(self):
+        s = summary([(L, 99.999), (S, 0.001)])
+        assert s.severe_miles == 0.001
+        assert shown(s.severe_miles, 2) == 0.01
+        assert shown(s.avg_risk, 4) == 0.0001
 
 
 # ----------------------------------------------------------------------------- average risk
@@ -108,12 +140,14 @@ class TestAverageRisk:
     def test_the_contract_example(self):
         # docs/api-contract.md: low 790, moderate 130, high 61, severe 25 -> avg_risk 0.33
         s = summary([(L, 790.0), (M, 130.0), (H, 61.0), (S, 25.0)])
-        assert s.avg_risk == 0.33
+        assert s.avg_risk == pytest.approx(327 / 1006, abs=1e-6)
+        assert shown(s.avg_risk, 4) == 0.3251  # 0.325050 rounds half up
         assert (s.severe_miles, s.high_miles, s.distance_miles) == (25, 61, 1006)
 
-    def test_two_decimals_half_up(self):
-        # 0.325 exactly: (1*32.5) / 100
-        assert summary([(M, 32.5), (L, 67.5)]).avg_risk == 0.33
+    def test_it_is_not_rounded(self):
+        # (1 * 32.5) / 100 = 0.325, and (1 * 15.3) / 3000 = 0.0051
+        assert summary([(M, 32.5), (L, 67.5)]).avg_risk == 0.325
+        assert summary([(M, 15.3), (L, 2984.7)]).avg_risk == 0.0051
 
     def test_whole_route_at_each_level(self):
         for level in RiskLevel:

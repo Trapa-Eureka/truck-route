@@ -2,6 +2,7 @@
 // end up in the bundle. They are drawn with `currentColor`, so CSS colors them.
 
 import arrowRight from 'lucide-static/icons/arrow-right.svg?raw'
+import building from 'lucide-static/icons/building-2.svg?raw'
 import calendarClock from 'lucide-static/icons/calendar-clock.svg?raw'
 import check from 'lucide-static/icons/check.svg?raw'
 import circleDot from 'lucide-static/icons/circle-dot.svg?raw'
@@ -9,6 +10,9 @@ import clock from 'lucide-static/icons/clock.svg?raw'
 import cloudDrizzle from 'lucide-static/icons/cloud-drizzle.svg?raw'
 import cloudRain from 'lucide-static/icons/cloud-rain.svg?raw'
 import flag from 'lucide-static/icons/flag.svg?raw'
+import loader from 'lucide-static/icons/loader-circle.svg?raw'
+import locate from 'lucide-static/icons/locate-fixed.svg?raw'
+import map from 'lucide-static/icons/map.svg?raw'
 import mapPin from 'lucide-static/icons/map-pin.svg?raw'
 import route from 'lucide-static/icons/route.svg?raw'
 import ruler from 'lucide-static/icons/ruler.svg?raw'
@@ -21,6 +25,7 @@ import wind from 'lucide-static/icons/wind.svg?raw'
 
 const SVG: Record<string, string> = {
   arrowRight,
+  building,
   calendarClock,
   check,
   circleDot,
@@ -28,6 +33,9 @@ const SVG: Record<string, string> = {
   drizzle: cloudDrizzle,
   rain: cloudRain,
   flag,
+  loader,
+  locate,
+  map,
   mapPin,
   route,
   ruler,

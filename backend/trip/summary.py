@@ -3,9 +3,12 @@
 Pure: no Django, no network, no clock. The input is the list of *stretches* of a route: each
 checkpoint's final risk level and the miles it stands for (``Checkpoint.represents_miles``).
 
-The summary holds the **rounded values that are shown on screen** (miles to 1 mile, average
-risk to 2 decimals, time to the minute). The recommendation compares exactly these values, so
-a tie on screen is a tie in the comparison (CLAUDE.md section 5, tie rule).
+The miles per level and the average risk are kept at **full precision** (only cleaned of
+floating-point noise), and the recommendation compares exactly these values: 24.6 Severe miles
+beat 25.4 although both read "25" on a card, and a Severe stretch of 0.2 miles is not zero.
+Rounding to whole miles before comparing would let a later criterion overrule an earlier one.
+The travel time is in whole minutes, the unit it is shown in. ``shown()`` rounds a value for
+the API response without ever turning an amount above zero into 0 (CLAUDE.md section 5).
 """
 
 from __future__ import annotations
@@ -29,16 +32,27 @@ class Stretch:
 
 @dataclass(frozen=True)
 class RouteSummary:
-    """The summary fields of the API contract, already rounded for display."""
+    """One route's numbers. Miles per level and the average risk are at full precision."""
 
+    #: Total distance, rounded to the mile (display only).
     distance_miles: int
+    #: Travel time, rounded to the minute: what is shown and what criterion 4 compares.
     duration_minutes: int
     arrival: datetime
-    miles_by_level: dict[RiskLevel, int]
-    severe_miles: int
-    high_miles: int
+    miles_by_level: dict[RiskLevel, float]
+    severe_miles: float
+    high_miles: float
     avg_risk: float
     has_no_travel: bool
+
+
+# Sums of floats carry noise in the last digits (0.1 + 0.2 = 0.30000000000000004). Six decimals
+# of a mile are 1.6 mm: two routes that differ by less are equal.
+_NOISE_DECIMALS = 6
+
+
+def _clean(value: float) -> float:
+    return round(value, _NOISE_DECIMALS) + 0.0
 
 
 def round_half_up(value: float, decimals: int = 0) -> float:
@@ -52,6 +66,18 @@ def round_half_up(value: float, decimals: int = 0) -> float:
     exact = Decimal(repr(round(value, 6)))
     rounded = exact.quantize(Decimal(1).scaleb(-decimals), rounding=ROUND_HALF_UP)
     return int(rounded) if decimals == 0 else float(rounded)
+
+
+def shown(value: float, decimals: int) -> float:
+    """``value`` rounded half up for the API, but an amount above zero never becomes 0.
+
+    A Severe stretch of 0.004 miles is sent as 0.01, not 0: the screen may say "<1 mi", it must
+    not say "0" or "All Low" for a route the recommendation ranked as having Severe miles.
+    """
+    rounded = round_half_up(value, decimals)
+    if value > 0 and rounded == 0:
+        return float(Decimal(1).scaleb(-decimals))
+    return rounded
 
 
 def summarize_route(
@@ -92,9 +118,9 @@ def summarize_route(
         distance_miles=round_half_up(distance),
         duration_minutes=round_half_up(duration_seconds / 60),
         arrival=arrival,
-        miles_by_level={level: round_half_up(m) for level, m in miles_by_level.items()},
-        severe_miles=round_half_up(miles_by_level[RiskLevel.SEVERE]),
-        high_miles=round_half_up(miles_by_level[RiskLevel.HIGH]),
-        avg_risk=round_half_up(average, 2),
+        miles_by_level={level: _clean(m) for level, m in miles_by_level.items()},
+        severe_miles=_clean(miles_by_level[RiskLevel.SEVERE]),
+        high_miles=_clean(miles_by_level[RiskLevel.HIGH]),
+        avg_risk=_clean(average),
         has_no_travel=any(s.level == RiskLevel.NO_TRAVEL for s in stretches),
     )

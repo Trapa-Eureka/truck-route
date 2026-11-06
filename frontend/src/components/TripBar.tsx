@@ -15,7 +15,7 @@ export default function TripBar({ route, recommended }: { route: Route | undefin
     { icon: 'calendarClock', label: 'Arrival', value: formatShortTime(summary.arrival) },
   ]
   return (
-    <dl className="trip-bar" aria-label="Selected route">
+    <dl className="trip-bar" aria-label="Selected route" data-map-overlay>
       {items.map((item) => (
         <div className="trip-item" key={item.label}>
           <Icon name={item.icon} size={17} />

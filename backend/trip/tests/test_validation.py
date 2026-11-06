@@ -5,8 +5,15 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from trip.errors import DepartureInPast, InvalidInput, to_api_error
-from trip.tomtom import GeocodeNotFound, NoRoute, RoutingUnavailable
-from trip.validation import MAX_LOAD_WEIGHT_LB, PAST_GRACE, parse_analyze_request
+from trip.tomtom import GeocodeNotFound, LocationNotCovered, NoRoute, RoutingUnavailable
+from trip.validation import (
+    MAX_LOAD_WEIGHT_LB,
+    PAST_GRACE,
+    PickedPlace,
+    parse_analyze_request,
+    parse_place_query,
+    parse_position,
+)
 from trip.weather import ForecastOutOfRange, WeatherUnavailable
 
 UTC = timezone.utc
@@ -186,3 +193,126 @@ class TestErrorMapping:
     def test_other_exceptions_are_not_mapped(self):
         assert to_api_error(ValueError("x")) is None
         assert to_api_error(KeyError("x")) is None
+
+
+class TestPickedPlaces:
+    def place(self, **override):
+        data = {"label": "Willis Tower, 233 South Wacker Drive, Chicago, IL", "lat": 41.8789, "lon": -87.6359}
+        data.update(override)
+        return {k: v for k, v in data.items() if v is not ...}
+
+    def test_a_chosen_place_is_accepted_for_either_end(self):
+        req = parse_analyze_request(body(origin=self.place(), destination=self.place(label=" Denver ", lat=39.7, lon=-105)), NOW)
+        assert req.origin == PickedPlace("Willis Tower, 233 South Wacker Drive, Chicago, IL", 41.8789, -87.6359)
+        assert req.destination == PickedPlace("Denver", 39.7, -105.0)  # trimmed, numbers as floats
+
+    def test_text_and_a_chosen_place_can_be_mixed(self):
+        req = parse_analyze_request(body(origin="Chicago, IL", destination=self.place()), NOW)
+        assert req.origin == "Chicago, IL" and isinstance(req.destination, PickedPlace)
+
+    @pytest.mark.parametrize(
+        "lat, lon",
+        [(25.76, -80.19), (47.61, -122.33), (44.8, -68.8), (19.7, -155.1), (61.2, -149.9), (71.3, -156.8), (18, -180), (72, -66)],
+    )
+    def test_places_in_the_united_states_are_allowed(self, lat, lon):
+        # Miami, Seattle, Bangor, Hilo, Anchorage, Utqiagvik and the corners of the box
+        assert parse_analyze_request(body(origin=self.place(lat=lat, lon=lon)), NOW).origin.lat == float(lat)
+
+    @pytest.mark.parametrize(
+        "lat, lon",
+        [(51.5074, -0.1278), (0, 0), (-33.87, 151.21), (37.57, 126.98), (17.99, -100), (72.01, -100), (40, -65.99), (-16.8, 180), (90, 180), (-90, -180)],
+    )
+    def test_a_position_outside_the_united_states_is_refused(self, lat, lon):
+        # London, the equator, Sydney, Seoul, just outside each side of the box, Fiji, the poles
+        error = field_error(destination=self.place(lat=lat, lon=lon))
+        assert error.field == "destination"
+        assert "outside the United States" in error.message
+
+    @pytest.mark.parametrize("name", ["lat", "lon"])
+    def test_an_integer_too_large_for_a_float_is_refused_not_a_crash(self, name):
+        assert field_error(origin=self.place(**{name: 10**400})).field == "origin"
+        assert field_error(origin=self.place(**{name: -(10**400)})).field == "origin"
+
+    @pytest.mark.parametrize("label", ["abc\ud800", "ab\x00cd", "a\x1bb", "x\x7f"])
+    def test_a_label_with_characters_that_cannot_be_sent_on_is_refused(self, label):
+        assert field_error(origin=self.place(label=label)).field == "origin"
+
+    @pytest.mark.parametrize("override", [{"label": ""}, {"label": "  "}, {"label": 5}, {"label": None}, {"label": ...}, {"label": "x" * 201}])
+    def test_a_bad_label_names_the_field(self, override):
+        assert field_error(origin=self.place(**override)).field == "origin"
+
+    @pytest.mark.parametrize("override", [{"lat": 90.1}, {"lat": -91}, {"lat": "41.8"}, {"lat": None}, {"lat": True}, {"lat": float("nan")}, {"lat": float("inf")}, {"lat": ...},
+                                          {"lon": 180.1}, {"lon": -181}, {"lon": "x"}, {"lon": None}, {"lon": False}, {"lon": float("-inf")}, {"lon": ...}])
+    def test_bad_coordinates_name_the_field(self, override):
+        error = field_error(destination=self.place(**override))
+        assert error.field == "destination"
+
+    @pytest.mark.parametrize("value", [[], 5, True, None, ["Chicago"]])
+    def test_other_types_are_not_a_place(self, value):
+        assert field_error(origin=value).field == "origin"
+
+    def test_an_empty_object_is_not_a_place(self):
+        assert field_error(origin={}).field == "origin"
+
+
+class TestHostileInput:
+    """Valid JSON that used to end in an HTTP 500."""
+
+    def test_a_load_weight_too_large_for_a_float(self):
+        assert field_error(load_weight_lb=10**400).field == "load_weight_lb"
+        assert field_error(load_weight_lb=-(10**400)).field == "load_weight_lb"
+
+    @pytest.mark.parametrize(
+        "departure",
+        ["0001-01-01T00:00:00+05:00", "0001-01-01T00:00:00+14:00", "9999-12-31T23:59:59-05:00", "9999-12-31T23:59:59-12:00"],
+    )
+    def test_a_departure_at_the_edge_of_the_calendar(self, departure):
+        # Converting these to UTC leaves the years 1 to 9999.
+        assert field_error(departure=departure).field == "departure"
+
+    @pytest.mark.parametrize("text", ["abc\ud800", "\udfff Chicago", "Chi\x00cago", "Chicago\x1b[0m", "a\x7fb"])
+    def test_control_characters_and_lone_surrogates_in_an_address(self, text):
+        for field in ("origin", "destination"):
+            error = field_error(**{field: text})
+            assert error.field == field and "cannot be used" in error.message
+
+    def test_a_pasted_line_break_or_tab_is_just_a_space(self):
+        req = parse_analyze_request(body(origin="233 S Wacker Dr\n\tChicago,  IL\r\n"), NOW)
+        assert req.origin == "233 S Wacker Dr Chicago, IL"
+
+    @pytest.mark.parametrize("text", ["Zürich Rd, Lake Zurich, IL", "서울식당, Chicago", "Café 👩‍👩‍👧 Diner", "O'Hare / Terminal #5 (50%)"])
+    def test_ordinary_text_in_any_script_is_kept(self, text):
+        assert parse_analyze_request(body(origin=text), NOW).origin == text
+
+    @pytest.mark.parametrize("q", ["abc\ud800", "ab\x00cd"])
+    def test_a_search_text_with_such_characters_is_refused(self, q):
+        with pytest.raises(InvalidInput):
+            parse_place_query({"q": q})
+
+
+class TestPlaceQueryParams:
+    def test_a_search_text_is_trimmed_and_squeezed(self):
+        assert parse_place_query({"q": "  233   S  Wack "}) == "233 S Wack"
+
+    @pytest.mark.parametrize("params", [{}, {"q": ""}, {"q": "   "}, {"q": None}, {"q": 5}, {"q": "x" * 201}])
+    def test_a_missing_or_bad_text_is_refused(self, params):
+        with pytest.raises(InvalidInput):
+            parse_place_query(params)
+
+    def test_a_position(self):
+        assert parse_position({"lat": "41.8789", "lon": "-87.6359"}) == (41.8789, -87.6359)
+
+    @pytest.mark.parametrize(
+        "params",
+        [{}, {"lat": "41"}, {"lon": "-87"}, {"lat": "x", "lon": "1"}, {"lat": "", "lon": "1"}, {"lat": "91", "lon": "0"}, {"lat": "0", "lon": "-181"}, {"lat": "nan", "lon": "0"}, {"lat": "inf", "lon": "0"}, {"lat": None, "lon": "0"}],
+    )
+    def test_a_bad_position_is_refused(self, params):
+        with pytest.raises(InvalidInput):
+            parse_position(params)
+
+
+class TestLocationNotCoveredError:
+    def test_it_is_a_422_that_says_the_us_only(self):
+        status, body = to_api_error(LocationNotCovered("position is in KR"))
+        assert status == 422 and body["error"]["code"] == "GEOCODE_NOT_FOUND"
+        assert "United States" in body["error"]["message"] and "KR" not in body["error"]["message"]

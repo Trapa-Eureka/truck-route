@@ -11,7 +11,13 @@ Measured facts this module relies on (2026-11-06):
 * No route: HTTP 400 with ``detailedError.code`` ``NO_ROUTE_FOUND`` or ``MAP_MATCHING_FAILURE``
   (an end point that is not near a road). A past ``departAt`` is accepted without error, so the
   caller must reject it. Origin = destination gives a route of length 0.
-* Geocoding: ``countrySet=US``, ``limit=1``; an unknown address is HTTP 200 with no results.
+* Places: Fuzzy Search (``/search/2/search``) finds addresses, cities **and named places** (a
+  building, a station), which the plain Geocoding API does not: "Willis Tower, Chicago" is a
+  neighbourhood there but the tower in Fuzzy Search. Typing a text (``suggest``) uses
+  ``typeahead=true``; confirming a typed text (``geocode``) takes the first result. An unknown
+  text is HTTP 200 with no results.
+* Reverse geocoding (``/search/2/reverseGeocode``) turns the browser's position into an address;
+  its ``countryCode`` tells a position outside the US, which this app does not route.
 
 Error messages never contain the request URL, which carries the API key.
 """
@@ -19,7 +25,7 @@ Error messages never contain the request URL, which carries the API key.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any, Callable, Protocol
 from urllib.parse import quote
@@ -27,13 +33,19 @@ from urllib.parse import quote
 import requests
 
 from .http import get_json
-from .sampling import Anchor
+from .sampling import Anchor, check_route
 
 BASE_URL = "https://api.tomtom.com"
 KG_PER_LB = 0.45359237
 REQUEST_TIMEOUT_SECONDS = 40  # a 3-route cross-country answer takes 6 to 10 seconds
 ROUTE_CACHE_SECONDS = 15 * 60
 GEOCODE_CACHE_SECONDS = 24 * 60 * 60
+SUGGEST_CACHE_SECONDS = 60 * 60
+MIN_SUGGEST_CHARS = 3
+MAX_SUGGESTIONS = 5
+#: Ask for more than are shown: the same place often comes back several times.
+_SUGGEST_FETCH = 10
+REVERSE_RADIUS_M = 1000
 MAX_ROUTES = 3
 _NO_ROUTE_CODES = {"NO_ROUTE_FOUND", "MAP_MATCHING_FAILURE"}
 
@@ -51,6 +63,10 @@ class GeocodeNotFound(TomTomError):
         self.field = field
 
 
+class LocationNotCovered(TomTomError):
+    """A position is outside the United States, or has no address nearby."""
+
+
 class NoRoute(TomTomError):
     """TomTom found no truck route between the two places."""
 
@@ -65,6 +81,41 @@ class Place:
     label: str
     lat: float
     lon: float
+
+
+@dataclass(frozen=True)
+class Suggestion:
+    """One choice in the From / To list."""
+
+    id: str
+    #: ``place`` (a building, station ...), ``address`` or ``area`` (a city, a neighbourhood).
+    kind: str
+    #: The main line in the list ("Willis Tower", "233 South Wacker Drive").
+    name: str
+    #: The line under it ("233 South Wacker Drive, Chicago, IL 60606", "Chicago, IL 60606").
+    detail: str
+    #: The whole text put in the input when chosen.
+    label: str
+    lat: float
+    lon: float
+
+
+def _describe(result: dict[str, Any]) -> tuple[str, str, str, str]:
+    """``(kind, name, detail, label)`` of a search result."""
+    address = result.get("address") or {}
+    freeform = (address.get("freeformAddress") or "").strip()
+    poi_name = ((result.get("poi") or {}).get("name") or "").strip()
+    if poi_name:
+        label = f"{poi_name}, {freeform}" if freeform else poi_name
+        return "place", poi_name, freeform, label
+    head, _, tail = freeform.partition(", ")
+    kind = "area" if result.get("type") == "Geography" else "address"
+    return kind, head or freeform, tail, freeform
+
+
+def _position(result: dict[str, Any]) -> tuple[float, float]:
+    position = result["position"]
+    return float(position["lat"]), float(position["lon"])
 
 
 @dataclass(frozen=True)
@@ -150,16 +201,19 @@ class TomTomClient:
     # --------------------------------------------------------------------------- geocoding
 
     def geocode(self, query: str) -> Place:
-        """The first US match for ``query``. Raises ``GeocodeNotFound`` if there is none."""
+        """The first US match for a typed ``query``. Raises ``GeocodeNotFound`` if there is none."""
         cache_key = f"tomtom:geocode:{query.strip().lower()}"
         cached = self._cache.get(cache_key)
         if cached is not None:
-            return cached
+            # The key ignores case, so the cached place may carry another spelling of the query.
+            return replace(cached, query=query)
 
-        url = f"{BASE_URL}/search/2/geocode/{quote(query.strip(), safe='')}.json"
+        url = f"{BASE_URL}/search/2/search/{quote(query.strip(), safe='')}.json"
         status, body = self._get(url, {"countrySet": "US", "limit": 1})
         if status != 200:
-            raise RoutingUnavailable(f"TomTom rejected the address lookup (HTTP {status}).")
+            # HTTP 400 is TomTom's answer to a text it cannot search for ("%%%"): the text is the
+            # problem, not the service, so say "not found" and do not invite a retry.
+            raise GeocodeNotFound(query)
         try:
             results = body["results"]
             if not isinstance(results, list):
@@ -167,15 +221,99 @@ class TomTomClient:
             if not results:
                 raise GeocodeNotFound(query)
             first = results[0]
+            lat, lon = _position(first)
             place = Place(
                 query=query,
-                label=first.get("address", {}).get("freeformAddress") or query.strip(),
-                lat=float(first["position"]["lat"]),
-                lon=float(first["position"]["lon"]),
+                label=_describe(first)[3] or query.strip(),
+                lat=lat,
+                lon=lon,
             )
         except (KeyError, TypeError, ValueError, IndexError, AttributeError):
             raise RoutingUnavailable("TomTom sent an address answer that cannot be read.") from None
 
+        self._cache.set(cache_key, place, GEOCODE_CACHE_SECONDS)
+        return place
+
+    def suggest(self, query: str) -> list[Suggestion]:
+        """Up to 5 choices for what is being typed: places, addresses and cities in the US."""
+        text = " ".join(query.split())
+        if len(text) < MIN_SUGGEST_CHARS:
+            return []
+        cache_key = f"tomtom:suggest:{text.lower()}"
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            return list(cached)
+
+        url = f"{BASE_URL}/search/2/search/{quote(text, safe='')}.json"
+        status, body = self._get(url, {"countrySet": "US", "limit": _SUGGEST_FETCH, "typeahead": "true"})
+        if status != 200:
+            return []  # HTTP 400: a text TomTom cannot search for has no matches
+        try:
+            results = body["results"]
+            if not isinstance(results, list):
+                raise TypeError("results is not a list")
+            suggestions: list[Suggestion] = []
+            seen: set[tuple[str, str]] = set()
+            for result in results:
+                try:
+                    lat, lon = _position(result)
+                    kind, name, detail, label = _describe(result)
+                except (KeyError, TypeError, ValueError, AttributeError):
+                    continue  # one unreadable result does not spoil the list
+                if not label:
+                    continue
+                # The same place is often listed several times a few meters apart.
+                identity = (name.lower(), detail.lower())
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                suggestions.append(
+                    Suggestion(
+                        id=str(result.get("id") or f"{lat:.5f},{lon:.5f}"),
+                        kind=kind,
+                        name=name,
+                        detail=detail,
+                        label=label,
+                        lat=lat,
+                        lon=lon,
+                    )
+                )
+                if len(suggestions) == MAX_SUGGESTIONS:
+                    break
+        except (KeyError, TypeError):
+            raise RoutingUnavailable("TomTom sent a place answer that cannot be read.") from None
+
+        self._cache.set(cache_key, tuple(suggestions), SUGGEST_CACHE_SECONDS)
+        return suggestions
+
+    def reverse(self, lat: float, lon: float) -> Place:
+        """The address at a position (the browser's location). Raises ``LocationNotCovered``."""
+        cache_key = f"tomtom:reverse:{lat:.4f},{lon:.4f}"
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        url = f"{BASE_URL}/search/2/reverseGeocode/{lat:.6f},{lon:.6f}.json"
+        status, body = self._get(url, {"radius": REVERSE_RADIUS_M})
+        if status != 200:
+            raise RoutingUnavailable(f"TomTom rejected the location lookup (HTTP {status}).")
+        try:
+            addresses = body["addresses"]
+            if not isinstance(addresses, list):
+                raise TypeError("addresses is not a list")
+            if not addresses:
+                raise LocationNotCovered("no address near this position")
+            address = addresses[0]["address"]
+            country = address.get("countryCode")
+            label = (address.get("freeformAddress") or "").strip()
+        except (KeyError, TypeError, IndexError, AttributeError):
+            raise RoutingUnavailable("TomTom sent a location answer that cannot be read.") from None
+        if country != "US":
+            raise LocationNotCovered(f"position is in {country or 'an unknown country'}")
+        if not label:
+            raise LocationNotCovered("no address near this position")
+
+        place = Place(query=f"{lat:.5f},{lon:.5f}", label=label, lat=round(lat, 5), lon=round(lon, 5))
         self._cache.set(cache_key, place, GEOCODE_CACHE_SECONDS)
         return place
 
@@ -223,6 +361,16 @@ class TomTomClient:
             raise RoutingUnavailable("TomTom sent a route answer that cannot be read.") from None
         if not routes:
             raise NoRoute("TomTom found no truck route between these places.")
+        # Refuse a route that checkpoints cannot be built from (guidance that goes backwards in
+        # time, a point index past the line ...) before it is cached: cached, it would fail every
+        # request for this trip for 15 minutes. A route of length 0 is left for the caller, which
+        # reports it as "the same place".
+        for route in routes:
+            if route.length_m > 0:
+                try:
+                    check_route(route.points, route.anchors, route.length_m, route.time_s)
+                except ValueError:
+                    raise RoutingUnavailable("TomTom sent a route that is not consistent.") from None
 
         self._cache.set(cache_key, routes, ROUTE_CACHE_SECONDS)
         return routes

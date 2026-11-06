@@ -25,7 +25,7 @@ class RiskLevel(IntEnum):
     """Risk levels in ascending order.
 
     The integer values are used for the average-risk calculation (Low 0 ... No Travel 4)
-    and are the integer levels sent in the heatmap response.
+    and are the whole part of a heatmap score (``risk_score``).
     """
 
     LOW = 0

@@ -1,13 +1,15 @@
-"""The heatmap use case: the risk level at every grid point for each of the next 48 hours.
+"""The heatmap use case: a risk score at every grid point for each of the next 48 hours.
 
 Slider hour ``h`` is the forecast ``h`` hours after the departure hour. The departure hour is the
-departure rounded to the nearest hour, the same rule checkpoints use, so a checkpoint and the
-heatmap show the same forecast (CLAUDE.md sections 2 and 7).
+departure rounded to the nearest hour (CLAUDE.md sections 2 and 7). At a whole hour the wind is
+the value at that hour and rain and snow are the sums of the hour before it; a checkpoint, whose
+ETA is rarely on the hour, reads wind at the nearest hour and rain and snow at the hour that
+contains its ETA (``weather.py``).
 
 Each point gets a **score** from 0 to 4 (``risk.risk_score``): the weather's strength, continuous,
 so the map can show 5 mph wind and 20 mph wind as different even though both are "Low". The whole
 part of the score is the risk level by the same rules as checkpoints, load rules included, so the
-colors on the route and on the heatmap always agree. All 49 hours come back in one response:
+route and the heatmap use one scale and one set of colors. All 49 hours come back in one response:
 moving the slider in the browser never calls the API again.
 """
 

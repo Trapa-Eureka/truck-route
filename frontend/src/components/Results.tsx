@@ -1,6 +1,7 @@
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import { memo, useRef } from 'react'
+import { formatDateTime } from '../lib/format'
 import { fewerRoutesNotice, recommendationReason } from '../lib/reason'
 import { prefersReducedMotion } from '../map/reveal'
 import type { AnalyzeResponse } from '../types/api'
@@ -27,6 +28,7 @@ function Results({ data, selectedId, activeCheckpoint, onSelectRoute, onSelectCh
   const recommendedId = data.recommendation.route_id
   const selectedRoute = data.routes.find((route) => route.id === selectedId)
   const notice = fewerRoutesNotice(data.routes.length)
+  const departure = data.routes[0]?.checkpoints[0]?.eta
 
   useGSAP(
     () => {
@@ -59,6 +61,8 @@ function Results({ data, selectedId, activeCheckpoint, onSelectRoute, onSelectCh
       <h2 className="section-title enter">
         Routes <span className="count">{data.routes.length}</span>
       </h2>
+      {/* The cards show weekday and time only; the full date is said once, here. */}
+      {departure && <p className="hint enter">Leaving {formatDateTime(departure)}.</p>}
       <ul className="route-list">
         {data.routes.map((route) => (
           <li key={route.id} className="enter">
@@ -76,7 +80,7 @@ function Results({ data, selectedId, activeCheckpoint, onSelectRoute, onSelectCh
 
       {selectedRoute && (
         <div className="enter">
-          <CheckpointTimeline route={selectedRoute} activeIndex={activeCheckpoint} onSelect={onSelectCheckpoint} />
+          <CheckpointTimeline key={selectedRoute.id} route={selectedRoute} activeIndex={activeCheckpoint} onSelect={onSelectCheckpoint} />
         </div>
       )}
     </div>

@@ -120,6 +120,66 @@ def q(lat, lon, hours=0, minutes=0):
     return WeatherQuery(lat, lon, T0 + timedelta(hours=hours, minutes=minutes))
 
 
+# ------------------------------------------------------------- which forecast hour is used
+
+
+def hourly(lat, lon, hour):
+    """Wind, rain, showers and snow that each encode the forecast hour they belong to."""
+    return (hour.hour + 0.5, hour.hour / 100, 0.0, hour.hour / 10)
+
+
+class TestWhichHour:
+    """Wind: the nearest hour. Rain and snow: the hour whose sums cover the time."""
+
+    @pytest.mark.parametrize(
+        "minutes, wind_hour, rain_hour",
+        [(0, 12, 12), (1, 12, 13), (29, 12, 13), (30, 13, 13), (59, 13, 13), (60, 13, 13), (61, 13, 14)],
+    )
+    def test_wind_and_rain_hours(self, minutes, wind_hour, rain_hour):
+        client, _ = make_client(answering(value=hourly))
+        [sample] = client.get_weather_at([q(40.0, -90.0, minutes=minutes)])
+        assert sample == WeatherSample(wind_hour + 0.5, rain_hour / 100, rain_hour / 10)
+
+    def test_a_storm_that_starts_on_the_hour_is_seen_by_a_truck_arriving_just_after(self):
+        # 1.2 in/hr falls from 14:00 to 15:00: Open-Meteo stamps it 15:00.
+        def storm(lat, lon, hour):
+            return (5.0, 1.2 if hour.hour == 15 else 0.0, 0.0, 0.0)
+
+        client, _ = make_client(answering(value=storm))
+        times = [(2, 0), (2, 1), (2, 29), (2, 30), (2, 59), (3, 0), (3, 1)]  # after T0 = 12:00
+        samples = client.get_weather_at([q(40.0, -90.0, hours=h, minutes=m) for h, m in times])
+        assert [s.rain_in_hr for s in samples] == [0.0, 1.2, 1.2, 1.2, 1.2, 1.2, 0.0]
+
+    def test_both_hours_are_asked_for_in_one_request(self):
+        session = answering(value=hourly)
+        client, _ = make_client(session)
+        client.get_weather_at([q(40.0, -90.0, minutes=10)])
+        [params] = session.calls
+        assert (params["start_hour"], params["end_hour"]) == ("2026-11-09T12:00", "2026-11-09T13:00")
+
+    def test_a_time_on_the_hour_needs_one_hour_only(self):
+        session = answering(value=hourly)
+        client, _ = make_client(session)
+        client.get_weather_at([q(40.0, -90.0)])
+        [params] = session.calls
+        assert params["start_hour"] == params["end_hour"] == "2026-11-09T12:00"
+
+    def test_the_second_hour_comes_from_the_cache_when_it_is_there(self):
+        session = answering(value=hourly)
+        client, _ = make_client(session)
+        client.get_weather_at([q(40.0, -90.0, minutes=40)])  # caches 13:00
+        client.get_weather_at([q(40.0, -90.0, minutes=10)])  # needs 12:00 (new) and 13:00 (cached)
+        assert len(session.calls) == 2
+        assert session.calls[1]["start_hour"] == session.calls[1]["end_hour"] == "2026-11-09T12:00"
+
+    def test_results_stay_in_query_order_with_mixed_hours(self):
+        client, _ = make_client(answering(value=hourly))
+        samples = client.get_weather_at(
+            [q(40.0, -90.0, minutes=45), q(41.0, -91.0, minutes=10), q(40.0, -90.0, minutes=10)]
+        )
+        assert [(s.wind_mph, s.rain_in_hr) for s in samples] == [(13.5, 0.13), (12.5, 0.13), (12.5, 0.13)]
+
+
 # ----------------------------------------------------------------------------- the request
 
 
@@ -523,9 +583,16 @@ class TestForecastOutOfRange:
     def test_the_last_good_hour_is_still_usable(self):
         client, _ = make_client(answering(null_from=datetime(2026, 11, 21, 19)))
         [sample] = client.get_weather_at(
-            [WeatherQuery(40.0, -90.0, datetime(2026, 11, 21, 18, 20, tzinfo=UTC))]
+            [WeatherQuery(40.0, -90.0, datetime(2026, 11, 21, 18, 0, tzinfo=UTC))]
         )
         assert sample.wind_mph == pytest.approx(40.18)
+
+    def test_a_time_inside_the_first_missing_hour_is_out_of_range(self):
+        # 18:20 needs the wind of 18:00 (there) and the rain of 18:00 to 19:00 (missing).
+        client, _ = make_client(answering(null_from=datetime(2026, 11, 21, 19)))
+        with pytest.raises(ForecastOutOfRange) as caught:
+            client.get_weather_at([WeatherQuery(40.0, -90.0, datetime(2026, 11, 21, 18, 20, tzinfo=UTC))])
+        assert caught.value.forecast_end == datetime(2026, 11, 21, 18, tzinfo=UTC)
 
     def test_a_null_is_never_returned_as_zero(self):
         client, _ = make_client(answering(null_from=datetime(2026, 11, 21, 19)))

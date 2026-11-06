@@ -28,6 +28,7 @@ from .weather import (
     WeatherUnavailable,
     nearest_hour,
     parse_range_error,
+    precipitation_hour,
     parse_response,
     round_location,
 )
@@ -87,20 +88,29 @@ class WeatherClient:
     def get_weather_at(self, queries: Sequence[WeatherQuery]) -> list[WeatherSample]:
         """Weather for each query, in the same order.
 
-        The position is rounded to 2 decimals and the time to the nearest forecast hour. Equal
-        (position, hour) pairs are fetched once, and pairs seen within the last hour come from
-        the cache. Raises ``ForecastOutOfRange`` or ``WeatherUnavailable``; never fills a
-        missing value.
+        The position is rounded to 2 decimals. Wind is read at the forecast hour nearest to the
+        time; rain and snow at the hour whose sums cover the time (``weather.py``), so one query
+        can need two forecast hours. Equal (position, hour) pairs are fetched once, and pairs
+        seen within the last hour come from the cache. Raises ``ForecastOutOfRange`` or
+        ``WeatherUnavailable``; never fills a missing value.
         """
-        wanted: list[_Key] = [
-            (round_location(q.lat, q.lon), nearest_hour(q.time)) for q in queries
-        ]
-        unique = list(dict.fromkeys(wanted))
+        wanted: list[tuple[_Key, _Key]] = []
+        for q in queries:
+            location = round_location(q.lat, q.lon)
+            wanted.append(((location, nearest_hour(q.time)), (location, precipitation_hour(q.time))))
+        unique = list(dict.fromkeys(key for pair in wanted for key in pair))
         found = self._read_cache(unique)
         missing = [key for key in unique if key not in found]
         if missing:
             found.update(self._fetch(missing))
-        return [found[key] for key in wanted]
+        return [
+            WeatherSample(
+                wind_mph=found[wind_key].wind_mph,
+                rain_in_hr=found[rain_key].rain_in_hr,
+                snow_in_hr=found[rain_key].snow_in_hr,
+            )
+            for wind_key, rain_key in wanted
+        ]
 
     # ------------------------------------------------------------------------------ cache
 

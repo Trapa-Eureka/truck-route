@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { analyze, ApiRequestError, fetchHeatmap } from './api'
+import { analyze, ApiRequestError, fetchHeatmap, fetchPlaceAt, fetchSuggestions } from './api'
 import type { AnalyzeRequest } from '../types/api'
 
 const REQUEST: AnalyzeRequest = {
@@ -149,5 +149,59 @@ describe('fetchHeatmap', () => {
     expect(await fetchHeatmap(REQUEST).catch((e) => e)).toMatchObject({ code: 'NETWORK_ERROR' })
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new DOMException('aborted', 'AbortError')))
     expect((await fetchHeatmap(REQUEST).catch((e) => e)).name).toBe('AbortError')
+  })
+})
+
+describe('fetchSuggestions', () => {
+  const suggestions = [{ id: 'p1', kind: 'place', name: 'Willis Tower', detail: 'd', label: 'l', lat: 1, lon: 2 }]
+
+  it('asks for the text with a GET and returns the list', async () => {
+    const fetchMock = respond(200, { suggestions })
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await fetchSuggestions('233 S Wack & co')).toEqual(suggestions)
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/places?q=233+S+Wack+%26+co') // the text is escaped, not cut at the &
+    expect(init.method).toBe('GET')
+    expect(init.body).toBeUndefined()
+  })
+
+  it('passes the abort signal on and rethrows an abort', async () => {
+    const controller = new AbortController()
+    const fetchMock = vi.fn().mockRejectedValue(new DOMException('aborted', 'AbortError'))
+    vi.stubGlobal('fetch', fetchMock)
+    controller.abort()
+    await expect(fetchSuggestions('wacker', controller.signal)).rejects.toMatchObject({ name: 'AbortError' })
+    expect(fetchMock.mock.calls[0][1].signal).toBe(controller.signal)
+  })
+
+  it('turns a failure into an ApiRequestError', async () => {
+    vi.stubGlobal('fetch', respond(502, { error: { code: 'ROUTING_UNAVAILABLE', message: 'down' } }))
+    expect(await fetchSuggestions('wacker').catch((e) => e)).toMatchObject({ code: 'ROUTING_UNAVAILABLE', message: 'down' })
+  })
+})
+
+describe('fetchPlaceAt', () => {
+  it('asks for the position and returns the place', async () => {
+    const place = { label: '217 South Wacker Drive, Chicago, IL 60606', lat: 41.87891, lon: -87.63591 }
+    const fetchMock = respond(200, { place })
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await fetchPlaceAt(41.8789, -87.6359)).toEqual(place)
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/places/reverse?lat=41.8789&lon=-87.6359')
+  })
+
+  it('reports a position outside the US with the server’s message', async () => {
+    const message = 'Your location is outside the United States or has no address nearby. Routes are available in the US only.'
+    vi.stubGlobal('fetch', respond(422, { error: { code: 'GEOCODE_NOT_FOUND', message } }))
+    expect(await fetchPlaceAt(37.5665, 126.978).catch((e) => e)).toMatchObject({ code: 'GEOCODE_NOT_FOUND', message })
+  })
+})
+
+describe('analyze with a chosen place', () => {
+  it('sends the place object as it is', async () => {
+    const fetchMock = respond(200, {})
+    vi.stubGlobal('fetch', fetchMock)
+    const origin = { label: 'Willis Tower, Chicago', lat: 41.8789, lon: -87.6359 }
+    await analyze({ ...REQUEST, origin })
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).origin).toEqual(origin)
   })
 })

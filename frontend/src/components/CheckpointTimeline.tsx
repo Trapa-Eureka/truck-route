@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { checkpointTitle, formatShortTime, loadRuleNote, weatherRows } from '../lib/checkpoint'
+import { nextShown, PAGE_SIZE, pageStatus, shownToReach } from '../lib/pagination'
 import { RISK_COLORS, RISK_LABELS } from '../lib/risk'
 import { GLYPH_LABELS, weatherGlyph } from '../lib/weatherIcon'
 import type { RiskLevel, Route } from '../types/api'
@@ -18,21 +19,39 @@ interface Props {
 /** The selected route's checkpoints in driving order: when, how bad, and why. */
 export default function CheckpointTimeline({ route, activeIndex, onSelect }: Props) {
   const items = useRef(new Map<number, HTMLButtonElement>())
+  const heading = useRef<HTMLHeadingElement>(null)
+  const total = route.checkpoints.length
+  const [shown, setShown] = useState(PAGE_SIZE)
+  const [seenActive, setSeenActive] = useState<number | null>(null)
+
+  // A checkpoint chosen on the map may lie below the rows shown: open pages down to it. (Done while
+  // rendering, when the choice changes, so "back to the first 10" is not undone by it afterwards.)
+  if (activeIndex !== seenActive) {
+    setSeenActive(activeIndex)
+    const position = route.checkpoints.findIndex((checkpoint) => checkpoint.index === activeIndex)
+    if (position >= 0) setShown((current) => shownToReach(current, position, total))
+  }
+  const visible = Math.min(shown, total)
 
   // When a checkpoint is chosen on the map, bring it into view in the list.
   useEffect(() => {
     if (activeIndex !== null) items.current.get(activeIndex)?.scrollIntoView({ block: 'nearest' })
   }, [activeIndex])
 
-  const last = route.checkpoints.length - 1
+  function backToFirstPage() {
+    setShown(PAGE_SIZE)
+    heading.current?.scrollIntoView({ block: 'start' }) // the list gets short: do not leave the reader far below it
+  }
+
+  const last = total - 1
   return (
     <section className="timeline" aria-labelledby="timeline-title">
-      <h2 id="timeline-title">
-        Route {route.id} checkpoints <span className="count">{route.checkpoints.length}</span>
+      <h2 id="timeline-title" ref={heading}>
+        Route {route.id} checkpoints <span className="count">{total}</span>
       </h2>
       <p className="hint">Estimated arrival times in your time zone ({TIME_ZONE}).</p>
       <ol>
-        {route.checkpoints.map((checkpoint, position) => {
+        {route.checkpoints.slice(0, visible).map((checkpoint, position) => {
           const note = loadRuleNote(checkpoint)
           const active = checkpoint.index === activeIndex
           const glyph = weatherGlyph(checkpoint)
@@ -82,6 +101,31 @@ export default function CheckpointTimeline({ route, activeIndex, onSelect }: Pro
           )
         })}
       </ol>
+
+      {total > PAGE_SIZE && (
+        <div className="timeline-more">
+          <p className="timeline-more-status" aria-live="polite">
+            {pageStatus(visible, total)}
+          </p>
+          <div className="timeline-more-buttons">
+            {visible < total && (
+              <>
+                <button type="button" className="more-button primary-soft" onClick={() => setShown(nextShown(visible, total))}>
+                  Load more
+                </button>
+                <button type="button" className="more-button" onClick={() => setShown(total)}>
+                  Show all {total}
+                </button>
+              </>
+            )}
+            {visible > PAGE_SIZE && (
+              <button type="button" className="more-button" onClick={backToFirstPage}>
+                Back to first {PAGE_SIZE}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </section>
   )
 }

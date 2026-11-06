@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mapErrorMessage } from './errors'
+import { MAP_NOT_LOADED, MAP_REFUSED, mapErrorMessage, messageAfterLoad } from './errors'
 
 describe('mapErrorMessage', () => {
   it.each([401, 403])('says the key was refused for HTTP %d, even after the map loaded', (status) => {
@@ -25,5 +25,21 @@ describe('mapErrorMessage', () => {
   it('does not take other statuses for a refused key', () => {
     expect(mapErrorMessage({ status: 400 }, true)).toBeNull()
     expect(mapErrorMessage({ status: '403' }, true)).toBeNull()
+  })
+})
+
+describe('messageAfterLoad', () => {
+  it('takes "could not be loaded" down once the map has loaded after all', () => {
+    expect(messageAfterLoad(MAP_NOT_LOADED)).toBeNull()
+    expect(messageAfterLoad(mapErrorMessage(new Error('Failed to fetch'), false))).toBeNull()
+  })
+
+  it('keeps a refused key on screen: loading again does not fix that', () => {
+    expect(messageAfterLoad(MAP_REFUSED)).toBe(MAP_REFUSED)
+    expect(messageAfterLoad(mapErrorMessage({ status: 403 }, true))).toBe(MAP_REFUSED)
+  })
+
+  it('has nothing to do when there is no message', () => {
+    expect(messageAfterLoad(null)).toBeNull()
   })
 })

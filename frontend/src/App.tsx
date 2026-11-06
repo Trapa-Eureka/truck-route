@@ -2,6 +2,7 @@ import { lazy, memo, Suspense, useCallback, useRef, useState } from 'react'
 import AnalysisForm, { type FieldErrors } from './components/AnalysisForm'
 import ForecastSlider from './components/ForecastSlider'
 import Legend from './components/Legend'
+import MapBoundary from './components/MapBoundary'
 import Results from './components/Results'
 import TripBar from './components/TripBar'
 import { analyze, ApiRequestError, fetchHeatmap } from './lib/api'
@@ -158,28 +159,35 @@ export default function App() {
       </aside>
 
       <main className="map-area">
-        <Suspense fallback={<p className="map-loading">Loading map…</p>}>
-          <MapView
-            routes={routes}
-            selectedId={selectedId}
-            origin={data?.origin ?? null}
-            destination={data?.destination ?? null}
-            focus={focus}
-            heatmap={heatmapData}
+        <div className="map-stage">
+          <MapBoundary>
+            <Suspense fallback={<p className="map-loading">Loading map…</p>}>
+              <MapView
+                routes={routes}
+                selectedId={selectedId}
+                origin={data?.origin ?? null}
+                destination={data?.destination ?? null}
+                focus={focus}
+                heatmap={heatmapData}
+                hour={hour}
+                truck={truck?.position ?? null}
+                onSelectRoute={selectRoute}
+                onSelectCheckpoint={selectCheckpointOnMap}
+              />
+            </Suspense>
+          </MapBoundary>
+          <TripBar route={selectedRoute} recommended={selectedRoute?.id === recommendedId} />
+        </div>
+        {/* The legend and the forecast slider share the bottom of the map; on a small screen they sit under it. */}
+        <div className="map-dock">
+          <Legend />
+          <ForecastSlider
+            status={heatmap}
             hour={hour}
-            truck={truck?.position ?? null}
-            onSelectRoute={selectRoute}
-            onSelectCheckpoint={selectCheckpointOnMap}
+            onHourChange={setHour}
+            truckText={truck && selectedRoute ? truckDescription(truck, selectedRoute.id) : null}
           />
-        </Suspense>
-        <TripBar route={selectedRoute} recommended={selectedRoute?.id === recommendedId} />
-        <ForecastSlider
-          status={heatmap}
-          hour={hour}
-          onHourChange={setHour}
-          truckText={truck && selectedRoute ? truckDescription(truck, selectedRoute.id) : null}
-        />
-        <Legend />
+        </div>
       </main>
     </div>
   )

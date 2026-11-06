@@ -3,10 +3,10 @@
 This is where Steps 3 to 6 are put together. It takes its two external services (TomTom and the
 weather client) as arguments, so the whole flow can be tested without a network.
 
-Everything is computed at full precision. Rounding happens only when the response is built
-(``_route_json``): coordinates to 5 decimals (about 1 m), miles to 2 decimals, times to the
-second. The summary numbers that decide the recommendation are already the rounded values shown
-on screen (``summary.py``).
+Everything is computed at full precision, the summary numbers that decide the recommendation
+included (``summary.py``). Rounding happens only when the response is built: coordinates to 5
+decimals (about 1 m), miles to 2 decimals, the average risk to 4, times to the second. A level's
+miles or an average above zero are never sent as 0 (``summary.shown``).
 """
 
 from __future__ import annotations
@@ -20,13 +20,17 @@ from .geometry import Segment, joined, risk_segments
 from .recommend import recommend
 from .risk import CheckpointRisk, RiskLevel, assess_checkpoint
 from .sampling import METERS_PER_MILE, Checkpoint, build_checkpoints, route_distances_m
-from .summary import RouteSummary, Stretch, summarize_route
+from .summary import RouteSummary, Stretch, shown, summarize_route
 from .tomtom import GeocodeNotFound, Place, RawRoute
-from .validation import AnalyzeRequest
+from .validation import AnalyzeRequest, PickedPlace
 from .weather import WeatherSample
 from .weather_client import WeatherQuery
 
 ROUTE_IDS = "ABC"
+
+# Decimals of the summary numbers in the response (the screen rounds them further).
+_MILES_DECIMALS = 2
+_AVG_RISK_DECIMALS = 4
 
 
 class RoutingService(Protocol):
@@ -49,7 +53,9 @@ def _coordinate(lon: float, lat: float) -> list[float]:
     return [round(lon, 5), round(lat, 5)]
 
 
-def _geocode(routing: RoutingService, query: str, field: str) -> Place:
+def _geocode(routing: RoutingService, query: str | PickedPlace, field: str) -> Place:
+    if isinstance(query, PickedPlace):  # chosen from the list: already a position
+        return Place(query=query.label, label=query.label, lat=query.lat, lon=query.lon)
     try:
         return routing.geocode(query)
     except GeocodeNotFound as error:
@@ -122,10 +128,12 @@ def _summary_json(s: RouteSummary) -> dict[str, Any]:
         "distance_miles": s.distance_miles,
         "duration_minutes": s.duration_minutes,
         "arrival": _iso(s.arrival),
-        "miles_by_level": {level.api_name: s.miles_by_level[level] for level in RiskLevel},
-        "severe_miles": s.severe_miles,
-        "high_miles": s.high_miles,
-        "avg_risk": s.avg_risk,
+        "miles_by_level": {
+            level.api_name: shown(s.miles_by_level[level], _MILES_DECIMALS) for level in RiskLevel
+        },
+        "severe_miles": shown(s.severe_miles, _MILES_DECIMALS),
+        "high_miles": shown(s.high_miles, _MILES_DECIMALS),
+        "avg_risk": shown(s.avg_risk, _AVG_RISK_DECIMALS),
         "has_no_travel": s.has_no_travel,
     }
 

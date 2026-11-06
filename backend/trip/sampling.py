@@ -194,13 +194,36 @@ def _prepare(
     total_time_s: float,
 ) -> tuple[list[Anchor], list[float]]:
     """Validate a route and return its normalized anchors and per-point distances."""
+    normalized = _checked_anchors(points, anchors, total_length_m, total_time_s)
+    return normalized, _route_distances_m(points, normalized)
+
+
+def _checked_anchors(
+    points: Sequence[tuple[float, float]],
+    anchors: Sequence[Anchor],
+    total_length_m: float,
+    total_time_s: float,
+) -> list[Anchor]:
     if not (math.isfinite(total_length_m) and total_length_m > 0):
         raise ValueError(f"total_length_m must be positive, got {total_length_m!r}")
     if not (math.isfinite(total_time_s) and total_time_s >= 0):
         raise ValueError(f"total_time_s must not be negative, got {total_time_s!r}")
     _check_points(points)
-    normalized = _normalize_anchors(anchors, len(points) - 1, total_length_m, total_time_s)
-    return normalized, _route_distances_m(points, normalized)
+    return _normalize_anchors(anchors, len(points) - 1, total_length_m, total_time_s)
+
+
+def check_route(
+    points: Sequence[tuple[float, float]],
+    anchors: Sequence[Anchor],
+    total_length_m: float,
+    total_time_s: float,
+) -> None:
+    """Raise ``ValueError`` if checkpoints could not be built from this route.
+
+    The same checks ``build_checkpoints`` makes, without the distance work, so the routing client
+    can refuse a broken answer before it caches it.
+    """
+    _checked_anchors(points, anchors, total_length_m, total_time_s)
 
 
 def route_distances_m(

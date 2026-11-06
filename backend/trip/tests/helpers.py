@@ -47,6 +47,14 @@ class FakeRouting:
             raise GeocodeNotFound(query)
         return self._places[query]
 
+    def suggest(self, query):
+        self.suggested = getattr(self, "suggested", []) + [query]
+        return list(getattr(self, "suggestions", []))
+
+    def reverse(self, lat, lon):
+        self.reversed = getattr(self, "reversed", []) + [(lat, lon)]
+        return self.reverse_result
+
     def routes(self, origin, destination, departure, load_weight_lb):
         self.route_calls.append((origin, destination, departure, load_weight_lb))
         return self._routes

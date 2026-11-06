@@ -2,7 +2,7 @@
 // structured values (docs/api-contract.md); the English text is built here.
 
 import type { Checkpoint, Recommendation, Route } from '../types/api'
-import { formatAvgRisk, formatDateTime, formatDuration, plural, routeNames } from './format'
+import { distinctPair, formatDateTime, formatDuration, plural, routeNames } from './format'
 
 function durationDifference(deltaMinutes: number, versusId: string): string {
   if (deltaMinutes === 0) return 'same travel time'
@@ -31,21 +31,27 @@ export function recommendationReason(recommendation: Recommendation, routes: rea
   const delta = durationDifference(duration_delta_minutes, versus_route_id)
   const w = winner.summary
   const v = versus.summary
+  // `decided_by` compares the recommended route with the runner-up only, so the sentence says
+  // "fewer than Route B", not "fewest": a third route can have fewer and still rank lower,
+  // because it lost on an earlier criterion.
   switch (decided_by) {
     case 'severe_miles':
-      return `Fewest severe miles (${w.severe_miles} vs ${v.severe_miles} on Route ${versus.id}), ${delta}.`
+      return `Fewer severe miles than Route ${versus.id} (${compared(w.severe_miles, v.severe_miles, 0, 2)}), ${delta}.`
     case 'high_miles':
-      return `Fewest high miles (${w.high_miles} vs ${v.high_miles} on Route ${versus.id}), ${delta}.`
+      return `Fewer high miles than Route ${versus.id} (${compared(w.high_miles, v.high_miles, 0, 2)}), ${delta}.`
     case 'avg_risk':
-      return (
-        `Lowest average risk (${formatAvgRisk(w.avg_risk)} vs ${formatAvgRisk(v.avg_risk)} ` +
-        `on Route ${versus.id}), ${delta}.`
-      )
+      return `Lower average risk than Route ${versus.id} (${compared(w.avg_risk, v.avg_risk, 2, 4)}), ${delta}.`
     case 'duration':
       return duration_delta_minutes === 0
         ? `Same risk and travel time as Route ${versus.id}.`
         : `Same risk as Route ${versus.id}, ${delta}.`
   }
+}
+
+/** "0 vs 25", "24.6 vs 25.4", or "by a hair: both about 25.44" when even the API's decimals agree. */
+function compared(winner: number, versus: number, minDecimals: number, maxDecimals: number): string {
+  const [a, b] = distinctPair(winner, versus, minDecimals, maxDecimals)
+  return a === b ? `by a hair: both about ${a}` : `${a} vs ${b}`
 }
 
 export interface NoTravelWarning {

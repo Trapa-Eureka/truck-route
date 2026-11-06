@@ -3,7 +3,7 @@
 
 import type { RiskLevel } from '../types/api'
 
-/** Lowest to highest, as in the PDF. A level's index is its heatmap integer (0 to 4). */
+/** Lowest to highest, as in the PDF. A level's index is the whole part of a heatmap score (0 to 4). */
 export const RISK_LEVELS: readonly RiskLevel[] = ['low', 'moderate', 'high', 'severe', 'no_travel']
 
 /** The PDF's own terms, used exactly. */

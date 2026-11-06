@@ -8,9 +8,12 @@ at only when every earlier one is tied.
 3. lowest average risk
 4. shortest travel time
 
-Pure: no Django, no network. It compares the *rounded* summary values (see ``summary.py``), so
-what is a tie on screen is a tie here. That is also what lets criterion 4 ever decide: unrounded
-averages almost never tie.
+Pure: no Django, no network. Severe miles, High miles and the average risk are compared at full
+precision (see ``summary.py``), so a route with fewer Severe miles always beats one with more,
+however small the difference, and a later criterion can never overrule an earlier one. Travel
+time is compared in whole minutes. Criterion 4 decides whenever the first three are equal, which
+is the common case of calm weather: every route then has exactly 0 Severe miles, 0 High miles
+and an average risk of 0.
 
 A route with any No Travel checkpoint is excluded and never recommended. If every route has one,
 nothing is recommended (this is a normal answer, not an error).

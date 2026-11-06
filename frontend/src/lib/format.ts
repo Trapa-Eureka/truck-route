@@ -20,6 +20,17 @@ export function defaultDeparture(now: Date = new Date()): string {
 }
 
 /**
+ * The departure to send. A value the user chose is kept as it is. The value the form filled in by
+ * itself ("the next quarter hour" when the page opened) goes stale while the page stays open, and
+ * the server refuses a departure in the past; as long as the user has not changed it, it moves on
+ * to the next quarter hour from now.
+ */
+export function currentDeparture(value: string, filledIn: string, now: Date = new Date()): string {
+  if (value !== filledIn) return value
+  return new Date(value).getTime() < now.getTime() ? defaultDeparture(now) : value
+}
+
+/**
  * Turns a datetime-local value (local time) into an ISO 8601 UTC string for the API,
  * for example "2026-11-09T20:00:00Z". Returns null when the value is empty or invalid.
  */
@@ -71,7 +82,7 @@ const LONG_TIME: Intl.DateTimeFormatOptions = {
 
 /** "Fri, Nov 6, 2:00 PM CST". Pass a time zone for tests; the default is the browser's. */
 export function formatDateTime(iso: string, timeZone?: string): string {
-  return dateTimeFormat(LONG_TIME, timeZone).format(new Date(iso))
+  return dateTimeFormat(LONG_TIME, timeZone).format(toNearestMinute(iso))
 }
 
 /** "Route C", "Routes B and C", "Routes A, B and C". */
@@ -80,6 +91,45 @@ export function routeNames(ids: readonly string[]): string {
   return `Routes ${ids.slice(0, -1).join(', ')} and ${ids[ids.length - 1]}`
 }
 
+/**
+ * The average risk as a card shows it: two decimals. An average above zero is never shown as
+ * "0.00", which would read as "no risk at all" for a route that has some.
+ */
 export function formatAvgRisk(value: number): string {
+  if (value > 0 && value < 0.005) return '<0.01'
   return value.toFixed(2)
+}
+
+/**
+ * Miles as a card shows them: whole miles. An amount above zero that would round to 0 is "<1",
+ * so a route with a short Severe stretch never reads "0 severe miles".
+ */
+export function formatMiles(value: number): string {
+  if (value > 0 && value < 0.5) return '<1'
+  return String(Math.round(value))
+}
+
+/**
+ * Two values that the recommendation told apart, written with as few decimals as it takes to see
+ * the difference: "25 vs 30", else "24.6 vs 25.4", up to `maxDecimals` (what the API sends). The
+ * comparison itself is made on the server at full precision; if the two still read alike here,
+ * the caller says so in words.
+ */
+export function distinctPair(a: number, b: number, minDecimals: number, maxDecimals: number): [string, string] {
+  for (let decimals = minDecimals; decimals <= maxDecimals; decimals++) {
+    const pair: [string, string] = [a.toFixed(decimals), b.toFixed(decimals)]
+    if (pair[0] !== pair[1] || decimals === maxDecimals) return pair
+  }
+  return [a.toFixed(maxDecimals), b.toFixed(maxDecimals)]
+}
+
+const MINUTE_MS = 60_000
+
+/**
+ * The time rounded to the nearest minute (half up). The API gives times to the second and the
+ * screen shows minutes; cutting the seconds off would show an arrival of 2:35 next to a duration
+ * of "2 h 36 min" for a trip of 2 h 35 min 30 s.
+ */
+export function toNearestMinute(iso: string): Date {
+  return new Date(Math.floor(new Date(iso).getTime() / MINUTE_MS + 0.5) * MINUTE_MS)
 }

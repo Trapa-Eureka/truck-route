@@ -150,7 +150,7 @@ class TestCheckpointsAndMiles:
         result, _, _ = run(weather=FakeWeather(storm_after(42.4, 40.0)))
         for route in result["routes"]:
             s = route["summary"]
-            assert abs(sum(s["miles_by_level"].values()) - s["distance_miles"]) <= 2.5
+            assert abs(sum(s["miles_by_level"].values()) - s["distance_miles"]) <= 0.53  # 0.5 for the whole-mile distance, 0.03 for five 2-decimal levels
 
     def test_there_is_one_weather_call_for_every_checkpoint_of_every_route(self):
         _, _, weather = run()
@@ -278,6 +278,85 @@ class TestSegments:
 
 
 # ---------------------------------------------------------------------------- recommendation
+
+
+class TestSmallStretches:
+    """A level's miles and the average are never sent as 0 when they are above 0."""
+
+    def stub_route(self, **scale):
+        # 150.2 miles at 25-mile checkpoints: the destination checkpoint stands for 0.1 mile.
+        route = recorded_route(length_factor=150.2 * METERS_PER_MILE / recorded_route().length_m, **scale)
+        return route
+
+    def at_the_destination(self, level_wind):
+        """A gust at the destination that is over 15% of the travel time after the fast arrival."""
+        base = recorded_route()
+        end_lat, end_lon = base.points[-1]
+        over = DEPART + timedelta(seconds=base.time_s * 1.15)
+
+        def weather(q):
+            at_end = abs(q.lat - end_lat) < 1e-9 and abs(q.lon - end_lon) < 1e-9
+            return WeatherSample(level_wind if at_end and q.time < over else 5.0, 0.0, 0.0)
+
+        return FakeWeather(weather)
+
+    def test_a_severe_stretch_of_a_tenth_of_a_mile_is_in_the_summary(self):
+        result, _, _ = run(routes=[self.stub_route()], weather=self.at_the_destination(50.0), load_weight_lb=20000.0)
+        route = result["routes"][0]
+        assert route["checkpoints"][-1]["level"] == "severe"
+        assert route["checkpoints"][-1]["represents_miles"] == pytest.approx(0.1, abs=0.01)
+        summary = route["summary"]
+        assert summary["severe_miles"] == pytest.approx(0.1, abs=0.01) and summary["severe_miles"] > 0
+        assert summary["miles_by_level"]["severe"] == summary["severe_miles"]
+        assert summary["avg_risk"] == pytest.approx(3 * 0.1 / 150.2, abs=0.0002) and summary["avg_risk"] > 0
+
+    def test_it_decides_the_recommendation(self):
+        # A is 47 minutes faster but ends in a Severe gust; B is calm all the way.
+        calm_and_slower = recorded_route(time_factor=1.3)
+        result, _, _ = run(routes=[self.stub_route(), calm_and_slower], weather=self.at_the_destination(50.0), load_weight_lb=20000.0)
+        rec = result["recommendation"]
+        assert (rec["route_id"], rec["decided_by"], rec["versus_route_id"]) == ("B", "severe_miles", "A")
+        assert rec["duration_delta_minutes"] > 0
+
+    def test_a_no_travel_stub_has_miles_above_zero_too(self):
+        result, _, _ = run(routes=[self.stub_route()], weather=self.at_the_destination(60.0))
+        summary = result["routes"][0]["summary"]
+        assert summary["has_no_travel"] is True
+        assert summary["miles_by_level"]["no_travel"] > 0
+
+    @pytest.mark.parametrize("wind_mph, level", [(30.0, "moderate"), (40.0, "high"), (50.0, "severe")])
+    def test_summary_numbers_have_the_contracts_decimals(self, wind_mph, level):
+        result, _, _ = run(weather=FakeWeather(storm_after(42.4, wind_mph)), load_weight_lb=20000.0)
+        assert result["routes"][0]["summary"]["miles_by_level"][level] > 0  # the storm is in the numbers checked
+        for route in result["routes"]:
+            summary = route["summary"]
+            for miles in [summary["severe_miles"], summary["high_miles"], *summary["miles_by_level"].values()]:
+                assert miles == round(miles, 2)
+            assert summary["avg_risk"] == round(summary["avg_risk"], 4)
+            assert isinstance(summary["distance_miles"], int) and isinstance(summary["duration_minutes"], int)
+
+
+class TestWhichForecastHour:
+    """End to end with the real weather client: wind at the nearest hour, rain at the covering hour."""
+
+    def test_a_checkpoint_reached_at_12_20_gets_the_wind_of_12_and_the_rain_that_falls_until_13(self):
+        from trip.tests.test_weather_client import DictCache, FakeResponse, FakeSession, body_for
+        from trip.weather_client import WeatherClient
+
+        def by_hour(lat, lon, hour):  # wind, rain, showers, snow: each names its forecast hour
+            return (float(hour.hour), hour.hour / 100, 0.0, hour.hour / 10)
+
+        session = FakeSession(lambda params: FakeResponse(200, body_for(params, by_hour)))
+        client = WeatherClient(session=session, cache=DictCache(), sleep=lambda s: None)
+        result = analyze(request(), FakeRouting([recorded_route()]), client)
+        for cp in result["routes"][0]["checkpoints"]:
+            eta = datetime.strptime(cp["eta"], "%Y-%m-%dT%H:%M:%SZ")
+            wind_hour = eta.hour + (1 if eta.minute >= 30 else 0)
+            rain_hour = eta.hour + (0 if (eta.minute, eta.second) == (0, 0) else 1)
+            assert cp["weather"] == {"wind_mph": float(wind_hour), "rain_in_hr": rain_hour / 100, "snow_in_hr": rain_hour / 10}
+        first = result["routes"][0]["checkpoints"][0]
+        assert first["eta"] == "2026-11-09T12:20:00Z"
+        assert first["weather"] == {"wind_mph": 12.0, "rain_in_hr": 0.13, "snow_in_hr": 1.3}
 
 
 class TestRecommendationFlow:

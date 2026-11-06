@@ -74,7 +74,7 @@ const METERS_PER_DEGREE = 111_195
  */
 export const HEAT_RADIUS_SHARE = 1.3
 /** Meters per pixel at zoom 0 on the equator (512 px tiles). */
-const METERS_PER_PIXEL_Z0 = 78_271.517
+export const METERS_PER_PIXEL_Z0 = 78_271.517
 /** Above this zoom the circles stop growing: a grid of 34 miles means little at street level. */
 const MAX_GROWTH_ZOOM = 12
 

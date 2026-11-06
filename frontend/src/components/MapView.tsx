@@ -13,14 +13,16 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import gsap from 'gsap'
 import { useEffect, useRef, useState } from 'react'
 import { heatFeatures } from '../lib/heatmap'
-import { checkpointDots, placeDots, riskSegments, routeLines, selectedLine } from '../map/geo'
+import { checkpointDots, placeDots, riskSegments, routeDots, routeLines, routeToSelect, selectedLine } from '../map/geo'
 import { heatLayerId } from '../map/heat'
 import { LAYER, SOURCE } from '../map/ids'
-import { addHeatLayers, addRouteLayers, removeHeatLayers } from '../map/layers'
-import { mapErrorMessage } from '../map/errors'
+import { checkpointSpacing } from '../map/dots'
+import { addHeatLayers, addRouteLayers, removeHeatLayers, sizeDots } from '../map/layers'
+import { mapErrorMessage, messageAfterLoad } from '../map/errors'
 import type { CheckpointFocus } from '../map/focus'
 import { addWeatherMarkers } from '../map/markers'
 import { mutedStyle } from '../map/mutedStyle'
+import { fitPadding } from '../map/padding'
 import { createPin } from '../map/pins'
 import { checkpointPopupContent } from '../map/popup'
 import { createReveal, prefersReducedMotion, type Reveal } from '../map/reveal'
@@ -46,7 +48,7 @@ interface Props {
   origin: ResolvedPlace | null
   destination: ResolvedPlace | null
   focus: CheckpointFocus | null
-  /** The forecast grid, loaded once, and the slider hour that picks which level to show. */
+  /** The forecast grid, loaded once, and the slider hour that picks which hour's scores to show. */
   heatmap: HeatmapResponse | null
   hour: number
   /** Where the truck is at that hour on the selected route. */
@@ -86,11 +88,12 @@ export default function MapView({
 
   const selectedRoute = routes.find((route) => route.id === selectedId)
 
-  // The click handlers are registered once; this keeps them calling the latest callbacks.
-  const callbacks = useRef({ onSelectRoute, onSelectCheckpoint })
+  // The click handler is registered once; this keeps it calling the latest callbacks and knowing
+  // which route is selected.
+  const latest = useRef({ onSelectRoute, onSelectCheckpoint, selectedId })
   useEffect(() => {
-    callbacks.current = { onSelectRoute, onSelectCheckpoint }
-  }, [onSelectRoute, onSelectCheckpoint])
+    latest.current = { onSelectRoute, onSelectCheckpoint, selectedId }
+  }, [onSelectRoute, onSelectCheckpoint, selectedId])
 
   // Create the map once and add the (empty) sources and layers.
   useEffect(() => {
@@ -108,7 +111,13 @@ export default function MapView({
     mapRef.current = map
 
     // A refused key or a style that never loads leaves a blank map: say so, the results still work.
+    // The style counts as loaded as soon as it is there ('style.load'), not when the whole first
+    // view has been drawn ('load'): on a slow connection one tile that fails in between is not "the
+    // map could not be loaded".
     const state = { styleLoaded: false, cancelled: false }
+    map.once('style.load', () => {
+      state.styleLoaded = true
+    })
     map.on('error', (event) => {
       const message = mapErrorMessage(event.error, state.styleLoaded)
       if (message) setProblem(message)
@@ -116,28 +125,33 @@ export default function MapView({
 
     map.on('load', async () => {
       state.styleLoaded = true
+      // The map is there after all (a first request that failed was tried again): take the message down.
+      setProblem(messageAfterLoad)
       // The weather markers are images; the layer that shows them needs them in the map first.
       try {
         await addWeatherMarkers(map)
       } catch {
-        // Without them the route still works; only the weather pictures are missing.
+        // Without them the route still works: every checkpoint also has a plain dot.
       }
       if (state.cancelled) return
       addRouteLayers(map)
       revealRef.current = createReveal(map)
 
-      map.on('click', LAYER.checkpoints, (event: MapMouseEvent) => {
-        const index = map.queryRenderedFeatures(event.point, { layers: [LAYER.checkpoints] })[0]?.properties?.index
-        if (typeof index === 'number') callbacks.current.onSelectCheckpoint(index)
+      // The selected route's checkpoints: the weather markers and the dots under them.
+      const checkpointLayers = [LAYER.checkpoints, LAYER.checkpointDots]
+      map.on('click', (event: MapMouseEvent) => {
+        // A click on a checkpoint is not a click on the route underneath it.
+        const index = map.queryRenderedFeatures(event.point, { layers: checkpointLayers })[0]?.properties?.index
+        if (typeof index === 'number') {
+          latest.current.onSelectCheckpoint(index)
+          return
+        }
+        // Where routes share a road the click hits several of them: it keeps the selected one.
+        const hits = map.queryRenderedFeatures(event.point, { layers: [LAYER.routeHit] }).map((f) => f.properties?.id)
+        const id = routeToSelect(hits, latest.current.selectedId)
+        if (id !== null) latest.current.onSelectRoute(id)
       })
-      map.on('click', LAYER.routeHit, (event: MapMouseEvent) => {
-        // A click on a checkpoint dot is not a click on the route underneath it.
-        if (map.queryRenderedFeatures(event.point, { layers: [LAYER.checkpoints] }).length > 0) return
-        // Features come back topmost first, and the selected route is drawn on top.
-        const id = map.queryRenderedFeatures(event.point, { layers: [LAYER.routeHit] })[0]?.properties?.id
-        if (typeof id === 'string') callbacks.current.onSelectRoute(id)
-      })
-      for (const layer of [LAYER.checkpoints, LAYER.routeHit]) {
+      for (const layer of [...checkpointLayers, LAYER.routeHit]) {
         map.on('mouseenter', layer, () => (map.getCanvas().style.cursor = 'pointer'))
         map.on('mouseleave', layer, () => (map.getCanvas().style.cursor = ''))
       }
@@ -163,10 +177,19 @@ export default function MapView({
     const map = mapRef.current
     if (!ready || !map) return
     setData(map, SOURCE.routes, routeLines(routes, selectedId))
-    setData(map, SOURCE.risk, riskSegments(selectedRoute))
+    setData(map, SOURCE.risk, riskSegments(routes, selectedId))
     setData(map, SOURCE.draw, selectedLine(selectedRoute))
+    setData(map, SOURCE.dots, routeDots(routes, selectedId))
     setData(map, SOURCE.checkpoints, checkpointDots(selectedRoute))
   }, [ready, routes, selectedId, selectedRoute])
+
+  // The dots' size depends on how close together the checkpoints are (10, 25 or 50 miles).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!ready || !map) return
+    const { miles, latitude } = checkpointSpacing(routes)
+    sizeDots(map, miles, latitude)
+  }, [ready, routes])
 
   // Draw the route (again) when a new analysis arrives or another route is chosen. It runs after the
   // effect above, so the new data is already in place when the old drawing is hidden.
@@ -273,7 +296,12 @@ export default function MapView({
     if (!ready || !map || routes.length === 0) return
     const bounds = new LngLatBounds()
     for (const route of routes) for (const point of route.geometry) bounds.extend(point)
-    map.fitBounds(bounds, { padding: 64, maxZoom: 12, duration: 700 })
+    // Leave the routes clear of whatever floats over the map (trip bar, legend, forecast slider)
+    // and of the label cards above the origin and the destination (padding.ts).
+    const container = map.getContainer()
+    const overlays = [...(container.closest('.map-area')?.querySelectorAll('[data-map-overlay]') ?? [])]
+    const padding = fitPadding(container.getBoundingClientRect(), overlays.map((element) => element.getBoundingClientRect()))
+    map.fitBounds(bounds, { padding, maxZoom: 12, duration: 700 })
   }, [ready, routes])
 
   // Show the popup and the ring for the focused checkpoint.
@@ -293,7 +321,7 @@ export default function MapView({
     if (!focus || !selectedRoute || !checkpoint) return
 
     const isLast = checkpoint === selectedRoute.checkpoints[selectedRoute.checkpoints.length - 1]
-    const onClose = () => callbacks.current.onSelectCheckpoint(null)
+    const onClose = () => latest.current.onSelectCheckpoint(null)
     const popup = new Popup({ closeOnClick: false, maxWidth: '380px', offset: 24 })
       .setLngLat([checkpoint.lon, checkpoint.lat])
       .setDOMContent(checkpointPopupContent(checkpoint, isLast))

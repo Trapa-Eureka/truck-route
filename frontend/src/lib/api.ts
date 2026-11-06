@@ -1,4 +1,12 @@
-import type { AnalyzeRequest, AnalyzeResponse, ApiError, ApiErrorCode, HeatmapResponse } from '../types/api'
+import type {
+  AnalyzeRequest,
+  AnalyzeResponse,
+  ApiError,
+  ApiErrorCode,
+  HeatmapResponse,
+  PickedPlace,
+  PlaceSuggestion,
+} from '../types/api'
 
 // Empty in development (Vite proxies /api to Django). Set VITE_API_BASE_URL for a separate API host.
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? ''
@@ -44,16 +52,11 @@ function isApiError(body: unknown): body is ApiError {
   return typeof error?.code === 'string' && typeof error?.message === 'string'
 }
 
-/** POST a JSON body. Throws ApiRequestError; an aborted request rethrows the AbortError. */
-async function post<T>(path: string, request: AnalyzeRequest, signal?: AbortSignal): Promise<T> {
+/** Sends a request and reads the answer. Throws ApiRequestError; an aborted request rethrows the AbortError. */
+async function send<T>(path: string, init: RequestInit): Promise<T> {
   let response: Response
   try {
-    response = await fetch(`${API_BASE}${path}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request),
-      signal,
-    })
+    response = await fetch(`${API_BASE}${path}`, init)
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw error
     throw new ApiRequestError('NETWORK_ERROR', 'Could not reach the server. Check your connection and try again.')
@@ -76,6 +79,21 @@ async function post<T>(path: string, request: AnalyzeRequest, signal?: AbortSign
   return body as T
 }
 
+/** POST a JSON body. */
+function post<T>(path: string, request: AnalyzeRequest, signal?: AbortSignal): Promise<T> {
+  return send<T>(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+    signal,
+  })
+}
+
+/** GET with query parameters. */
+function get<T>(path: string, params: Record<string, string>, signal?: AbortSignal): Promise<T> {
+  return send<T>(`${path}?${new URLSearchParams(params)}`, { method: 'GET', signal })
+}
+
 /** POST /api/analyze: routes, checkpoints, risk summary and recommendation. */
 export function analyze(request: AnalyzeRequest, signal?: AbortSignal): Promise<AnalyzeResponse> {
   return post<AnalyzeResponse>('/api/analyze', request, signal)
@@ -84,4 +102,16 @@ export function analyze(request: AnalyzeRequest, signal?: AbortSignal): Promise<
 /** POST /api/heatmap: the risk level on a grid around the routes for hours 0 to 48. */
 export function fetchHeatmap(request: AnalyzeRequest, signal?: AbortSignal): Promise<HeatmapResponse> {
   return post<HeatmapResponse>('/api/heatmap', request, signal)
+}
+
+/** GET /api/places: up to 5 places, addresses and cities for the text being typed. */
+export async function fetchSuggestions(text: string, signal?: AbortSignal): Promise<PlaceSuggestion[]> {
+  const body = await get<{ suggestions: PlaceSuggestion[] }>('/api/places', { q: text }, signal)
+  return body.suggestions
+}
+
+/** GET /api/places/reverse: the address at a position (the browser's location). */
+export async function fetchPlaceAt(lat: number, lon: number, signal?: AbortSignal): Promise<PickedPlace> {
+  const body = await get<{ place: PickedPlace }>('/api/places/reverse', { lat: String(lat), lon: String(lon) }, signal)
+  return body.place
 }

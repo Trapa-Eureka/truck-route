@@ -104,6 +104,12 @@ input {
   min-width: 0;
 }
 
+/* The map itself, with the trip bar over its top. The legend and the slider are in .map-dock. */
+.map-stage {
+  position: absolute;
+  inset: 0;
+}
+
 /* maplibre-gl.css sets .maplibregl-map { position: relative }; the extra selector keeps this layout winning. */
 .map-area .map {
   position: absolute;
@@ -180,6 +186,120 @@ input {
 
 .input input::placeholder {
   color: var(--faint);
+}
+
+/* From / To: the input with its list of suggestions under it. */
+.combo {
+  position: relative;
+}
+
+.locate {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  margin-right: -6px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.locate:hover:not(:disabled),
+.locate:focus-visible {
+  background: var(--brand-soft);
+  color: var(--brand);
+  outline: none;
+}
+
+.locate:disabled {
+  cursor: progress;
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.suggestions {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  right: 0;
+  left: 0;
+  max-height: 320px;
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.suggestions li[role='option'] {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  color: var(--faint);
+  cursor: pointer;
+}
+
+.suggestions li[data-active='true'] {
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+
+.suggestions .icon {
+  flex: none;
+  margin-top: 2px;
+}
+
+.suggestion-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.suggestion-name {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.suggestion-detail {
+  overflow: hidden;
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.suggestion-empty {
+  padding: 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
 }
 
 .field-row {
@@ -586,10 +706,83 @@ button.primary:disabled {
   color: var(--muted);
 }
 
+/* The route's miles by risk level: a thin bar and a line of words. */
+.rc-risk {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 10px;
+}
+
+.risk-bar {
+  display: flex;
+  gap: 2px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+}
+
+.risk-bar > span {
+  min-width: 3px; /* a few miles of trouble still show */
+}
+
+.risk-note {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
 /* ---------- checkpoint timeline ---------- */
 
 .timeline .hint {
   margin: 2px 0 10px;
+}
+
+.timeline-more {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.timeline-more-status {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.timeline-more-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.more-button {
+  height: 36px;
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.more-button:hover,
+.more-button:focus-visible {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+  color: var(--brand);
+  outline: none;
+}
+
+.more-button.primary-soft {
+  border-color: var(--brand);
+  color: var(--brand);
 }
 
 .timeline ol {
@@ -735,7 +928,11 @@ button.primary:disabled {
 
 /* ---------- on the map: trip bar, forecast slider, legend ---------- */
 
-/* Top right, next to the zoom buttons: the legend has the top left. */
+/*
+ * Nothing here may cover the ends of a route. The trip bar has the top right (next to the zoom
+ * buttons); the legend and the forecast slider share the bottom (.map-dock). When the map zooms
+ * to the routes it reads where these really are and keeps the routes clear of them (map/padding.ts).
+ */
 .trip-bar {
   position: absolute;
   top: 16px;
@@ -775,14 +972,33 @@ button.primary:disabled {
   white-space: nowrap;
 }
 
-.forecast {
+/* The bottom of the map: the legend at the left, the forecast slider in the middle. */
+.map-dock {
   position: absolute;
+  right: 16px;
   bottom: 26px;
-  left: 50%;
+  left: 16px;
   z-index: 2;
-  width: clamp(300px, calc(100% - 480px), 580px);
+  display: grid;
+  grid-template-columns: 1fr minmax(300px, 580px) 1fr;
+  gap: 14px;
+  align-items: end;
+  pointer-events: none; /* the map between and above the two cards stays usable */
+}
+
+.map-dock > * {
+  pointer-events: auto;
+}
+
+.forecast {
+  grid-column: 2;
+  /* The loading message has the room of the finished card, so the map knows from the start how
+     much of its bottom the card will take. */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 176px;
   padding: 14px 18px 12px;
-  transform: translateX(-50%);
   border-radius: 20px;
   background: var(--surface);
   box-shadow: var(--shadow);
@@ -868,12 +1084,64 @@ button.primary:disabled {
   color: var(--danger);
 }
 
+/* The scale of the shading the slider controls. */
+.heat-scale {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 11.5px;
+}
+
+.heat-scale-title {
+  font-weight: 700;
+  line-height: 12px;
+  white-space: nowrap;
+}
+
+.heat-scale-bar {
+  flex: 1;
+  min-width: 0;
+}
+
+.heat-ramp {
+  height: 12px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px rgba(20, 26, 33, 0.12);
+}
+
+.heat-bands {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin-top: 4px;
+  font-size: 10.5px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.heat-bands span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.heat-bands span + span {
+  border-left: 1px solid var(--line);
+}
+
+.heat-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  line-height: 12px;
+  white-space: nowrap;
+}
+
 .legend {
-  position: absolute;
-  top: 16px;
-  left: 16px;
-  z-index: 2;
-  max-width: 280px;
+  grid-column: 1;
+  justify-self: start;
+  max-width: 190px;
   padding: 12px 14px;
   border-radius: 16px;
   background: var(--surface);
@@ -899,14 +1167,14 @@ button.primary:disabled {
   display: flex;
   align-items: center;
   gap: 8px;
+  white-space: nowrap;
 }
 
 .legend-note {
-  max-width: 170px;
-  margin: 10px 0 0;
+  margin: 9px 0 0;
   padding-top: 8px;
   border-top: 1px solid var(--line);
-  font-size: 11.5px;
+  font-size: 11px;
   line-height: 1.4;
   color: var(--muted);
 }
@@ -1180,54 +1448,121 @@ button.primary:disabled {
   color: var(--danger);
 }
 
-/* ---------- small screens: the map on top, the panel under it ---------- */
+/* ---------- narrower maps and small screens ---------- */
 
-/* Medium screens: the trip bar and the legend would meet, so the legend goes under the bar. */
-@media (max-width: 1250px) and (min-width: 821px) {
-  .legend {
-    top: 88px;
-  }
-}
-
-@media (max-width: 820px) {
-  .app {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(0, 1fr) 50vh;
-  }
-
-  .panel {
-    order: 1;
-    border-radius: 22px 22px 0 0;
-    box-shadow: 0 -6px 20px rgba(20, 26, 33, 0.1);
-  }
-
-  .map-area {
-    order: 0;
-  }
-
+/* The trip bar's four items no longer fit in one row: two rows of two. */
+@media (max-width: 1180px) {
   .trip-bar {
-    top: 10px;
-    flex-wrap: wrap;
-    max-width: calc(100% - 70px);
+    display: grid;
+    grid-template-columns: auto auto;
   }
 
   .trip-item {
-    padding: 4px 10px;
+    padding: 5px 14px;
+  }
+
+  .trip-item + .trip-item {
+    border-left: 0;
+  }
+
+  .trip-item:nth-child(even) {
+    border-left: 1px solid var(--line);
+  }
+}
+
+/* No room for the legend beside the slider: it becomes one row of levels above it. */
+@media (max-width: 1080px) {
+  .map-dock {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .forecast {
+    grid-column: 1;
   }
 
   .legend {
-    top: 70px;
-    left: 10px;
-    padding: 8px 10px;
+    max-width: none;
+    padding: 8px 12px;
   }
 
+  .legend-title,
   .legend-note {
     display: none;
   }
 
+  .legend ul {
+    flex-flow: row wrap;
+    gap: 4px 14px;
+  }
+}
+
+/* Small screens: one column that scrolls. The map on top with the trip bar over it, the legend
+   and the slider under the map (over it they would hide the routes), then the panel. */
+@media (max-width: 820px) {
+  .app {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    min-height: 100%;
+  }
+
+  .map-area {
+    order: 0; /* before the panel, which comes first in the page's source */
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+  }
+
+  .map-stage {
+    position: relative;
+    inset: auto;
+    height: 46vh;
+    min-height: 300px;
+  }
+
+  .map-dock {
+    position: static;
+    padding: 10px 12px 0;
+  }
+
+  .legend,
   .forecast {
-    bottom: 14px;
-    width: calc(100% - 24px);
+    box-shadow: var(--shadow-small);
+  }
+
+  .forecast {
+    min-height: 0;
+  }
+
+  .heat-scale-title {
+    display: none;
+  }
+
+  .panel {
+    order: 1;
+    overflow: visible;
+  }
+
+  .trip-bar {
+    top: 10px;
+    right: 58px;
+    max-width: calc(100% - 68px);
+    padding: 4px;
+    border-radius: 14px;
+  }
+
+  .trip-item {
+    gap: 7px;
+    padding: 4px 9px;
+  }
+
+  .trip-item dt {
+    font-size: 10.5px;
+  }
+
+  .trip-item dd {
+    font-size: 12.5px;
   }
 }
 
@@ -1244,48 +1579,4 @@ button.primary:disabled {
   .truck-marker::after {
     animation: none;
   }
-}
-
-/* ---------- legend: the shading scale ---------- */
-
-.legend-shading {
-  margin-top: 12px;
-  padding-top: 10px;
-  border-top: 1px solid var(--line);
-}
-
-.legend-ramp-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.legend-ramp {
-  flex: 1;
-  height: 12px;
-  min-width: 120px;
-  border-radius: 999px;
-  box-shadow: inset 0 0 0 1px rgba(20, 26, 33, 0.12);
-}
-
-.legend-end {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11.5px;
-  white-space: nowrap;
-}
-
-.legend-bands {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  margin-top: 4px;
-  padding-right: 72px;
-  font-size: 10.5px;
-  color: var(--muted);
-  text-align: center;
-}
-
-.legend-bands span + span {
-  border-left: 1px solid var(--line);
 }

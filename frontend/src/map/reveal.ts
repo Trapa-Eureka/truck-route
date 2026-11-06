@@ -1,5 +1,6 @@
 // The animation that shows a route: a dark line is drawn from the origin to the destination, then
-// the risk colors, the white outline and the weather markers fade in, and the other routes appear.
+// the risk colors, the white outline, the checkpoint dots and the weather markers fade in, and the
+// other routes appear.
 //
 // How the drawing works. This version of MapLibre has no "trim" for lines, so the drawn line uses a
 // `line-gradient`: a color for the part of the line before `progress` and a transparent one after
@@ -15,6 +16,10 @@ import { FADE_MS, LAYER } from './ids'
 export const DRAW_COLOR = '#1a2530'
 /** The white outline under the route is slightly see-through. */
 export const OUTLINE_OPACITY = 0.9
+/** The routes that are not selected keep their risk colors but are paler (and thinner). */
+export const OTHER_OPACITY = 0.6
+export const OTHER_OUTLINE_OPACITY = 0.75
+export const OTHER_DOT_OPACITY = 0.8
 const CLEAR = 'rgba(26, 37, 48, 0)'
 
 /**
@@ -58,26 +63,41 @@ export function createReveal(map: MapLibreMap): Reveal {
     timeline = null
   }
 
-  const settled = (ms: number) => {
-    set(LAYER.routeCasing, 'line-opacity', OUTLINE_OPACITY, ms)
-    set(LAYER.riskLine, 'line-opacity', 1, ms)
-    set(LAYER.routeOther, 'line-opacity', 1, ms)
-    set(LAYER.routeDraw, 'line-opacity', 0, ms)
-    set(LAYER.checkpoints, 'icon-opacity', 1, ms)
+  // The layers of the selected route (without the dark line) and of the other routes, with the
+  // opacity each one has when it is showing.
+  const selectedLayers: [string, string, number][] = [
+    [LAYER.routeCasing, 'line-opacity', OUTLINE_OPACITY],
+    [LAYER.riskLine, 'line-opacity', 1],
+    [LAYER.checkpointDots, 'circle-opacity', 1],
+    [LAYER.checkpointDots, 'circle-stroke-opacity', 1],
+  ]
+  const otherLayers: [string, string, number][] = [
+    [LAYER.otherCasing, 'line-opacity', OTHER_OUTLINE_OPACITY],
+    [LAYER.riskOther, 'line-opacity', OTHER_OPACITY],
+    [LAYER.otherDots, 'circle-opacity', OTHER_DOT_OPACITY],
+    [LAYER.otherDots, 'circle-stroke-opacity', OTHER_DOT_OPACITY],
+  ]
+  const show = (layers: [string, string, number][], ms: number) => {
+    for (const [layer, property, opacity] of layers) set(layer, property, opacity, ms)
+  }
+  const hide = (layers: [string, string, number][]) => {
+    for (const [layer, property] of layers) set(layer, property, 0, 0)
   }
 
   return {
     stop,
     showAll() {
       stop()
-      settled(0)
+      show(selectedLayers, 0)
+      show(otherLayers, 0)
+      set(LAYER.routeDraw, 'line-opacity', 0, 0)
+      set(LAYER.checkpoints, 'icon-opacity', 1, 0)
     },
     play({ duration, delay = 0 }) {
       stop()
       // Hide at once, before the delay, so the new route never shows in full first.
-      set(LAYER.routeCasing, 'line-opacity', 0, 0)
-      set(LAYER.riskLine, 'line-opacity', 0, 0)
-      set(LAYER.routeOther, 'line-opacity', 0, 0)
+      hide(selectedLayers)
+      hide(otherLayers)
       set(LAYER.checkpoints, 'icon-opacity', 0, 0)
       set(LAYER.routeDraw, 'line-opacity', 1, 0)
       setProgress(0)
@@ -85,13 +105,12 @@ export function createReveal(map: MapLibreMap): Reveal {
       const state = { progress: 0 }
       timeline = gsap
         .timeline({ delay })
-        .call(() => set(LAYER.routeOther, 'line-opacity', 1, FADE_MS))
+        .call(() => show(otherLayers, FADE_MS))
         .to(state, { progress: 1, duration, ease: 'power2.inOut', onUpdate: () => setProgress(state.progress) })
         .call(
           () => {
             // The dark line has reached the destination: swap it for the real colors.
-            set(LAYER.routeCasing, 'line-opacity', OUTLINE_OPACITY, FADE_MS)
-            set(LAYER.riskLine, 'line-opacity', 1, FADE_MS)
+            show(selectedLayers, FADE_MS)
             set(LAYER.routeDraw, 'line-opacity', 0, FADE_MS)
           },
           [],

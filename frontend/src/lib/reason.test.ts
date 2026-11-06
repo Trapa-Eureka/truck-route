@@ -12,21 +12,21 @@ describe('recommendationReason', () => {
   it('names the severe miles and the time difference (the contract example)', () => {
     const routes = [route('A', { severe: 25 }), route('B', { severe: 60 })]
     expect(recommendationReason(recommendation(), routes)).toBe(
-      'Fewest severe miles (25 vs 60 on Route B), 20 min slower than Route B.',
+      'Fewer severe miles than Route B (25 vs 60), 20 min slower than Route B.',
     )
   })
 
   it('says faster when the recommended route is quicker', () => {
     const routes = [route('A', { severe: 0 }), route('B', { severe: 5 })]
     expect(recommendationReason(recommendation({ duration_delta_minutes: -35 }), routes)).toBe(
-      'Fewest severe miles (0 vs 5 on Route B), 35 min faster than Route B.',
+      'Fewer severe miles than Route B (0 vs 5), 35 min faster than Route B.',
     )
   })
 
   it('says same travel time when the difference is zero', () => {
     const routes = [route('A', { severe: 0 }), route('B', { severe: 5 })]
     expect(recommendationReason(recommendation({ duration_delta_minutes: 0 }), routes)).toBe(
-      'Fewest severe miles (0 vs 5 on Route B), same travel time.',
+      'Fewer severe miles than Route B (0 vs 5), same travel time.',
     )
   })
 
@@ -40,7 +40,7 @@ describe('recommendationReason', () => {
   it('high miles', () => {
     const routes = [route('A', { high: 10 }), route('B', { high: 40 })]
     expect(recommendationReason(recommendation({ decided_by: 'high_miles' }), routes)).toBe(
-      'Fewest high miles (10 vs 40 on Route B), 20 min slower than Route B.',
+      'Fewer high miles than Route B (10 vs 40), 20 min slower than Route B.',
     )
   })
 
@@ -53,8 +53,58 @@ describe('recommendationReason', () => {
       duration_delta_minutes: 26,
     })
     expect(recommendationReason(rec, routes)).toBe(
-      'Lowest average risk (0.10 vs 0.11 on Route A), 26 min slower than Route A.',
+      'Lower average risk than Route A (0.10 vs 0.11), 26 min slower than Route A.',
     )
+  })
+
+  it('shows a decimal when the whole miles read alike', () => {
+    // The server compares at full precision: 24.6 beats 25.4 although both are "25" on a card.
+    const routes = [route('A', { severe: 24.6 }), route('B', { severe: 25.4 })]
+    expect(recommendationReason(recommendation(), routes)).toBe(
+      'Fewer severe miles than Route B (24.6 vs 25.4), 20 min slower than Route B.',
+    )
+  })
+
+  it('shows two decimals when one is not enough, and no more decimals than needed', () => {
+    const close = [route('A', { high: 25.41 }), route('B', { high: 25.44 })]
+    expect(recommendationReason(recommendation({ decided_by: 'high_miles' }), close)).toContain('(25.41 vs 25.44)')
+    const far = [route('A', { high: 0.2 }), route('B', { high: 3.31 })]
+    expect(recommendationReason(recommendation({ decided_by: 'high_miles' }), far)).toContain('(0 vs 3)')
+  })
+
+  it('shows a short Severe stretch as itself, not as 0 vs 0', () => {
+    const routes = [route('A', { severe: 0 }), route('B', { severe: 0.2 })]
+    expect(recommendationReason(recommendation(), routes)).toContain('(0.0 vs 0.2)')
+  })
+
+  it('shows more decimals of the average risk when two read alike', () => {
+    // 15.3 and 44.7 Moderate miles over 3,000: both "0.01" on a card
+    const routes = [route('A', { avg: 0.0051 }), route('B', { avg: 0.0149 })]
+    expect(recommendationReason(recommendation({ decided_by: 'avg_risk' }), routes)).toBe(
+      'Lower average risk than Route B (0.005 vs 0.015), 20 min slower than Route B.',
+    )
+    const closer = [route('A', { avg: 0.3301 }), route('B', { avg: 0.3304 })]
+    expect(recommendationReason(recommendation({ decided_by: 'avg_risk' }), closer)).toContain('(0.3301 vs 0.3304)')
+  })
+
+  it('always shows the average risk with at least two decimals, as the cards do', () => {
+    const routes = [route('A', { avg: 0.2 }), route('B', { avg: 1.4 })]
+    expect(recommendationReason(recommendation({ decided_by: 'avg_risk' }), routes)).toContain('(0.20 vs 1.40)')
+  })
+
+  it('says so in words when even the last decimal sent is the same', () => {
+    const routes = [route('A', { severe: 25.44 }), route('B', { severe: 25.44 })]
+    expect(recommendationReason(recommendation(), routes)).toBe(
+      'Fewer severe miles than Route B (by a hair: both about 25.44), 20 min slower than Route B.',
+    )
+  })
+
+  it('never says fewest or lowest: the comparison is with the runner-up only', () => {
+    // Route C has fewer High miles than the winner but lost on Severe miles.
+    const routes = [route('A', { high: 10 }), route('B', { high: 20 }), route('C', { high: 0, severe: 5 })]
+    const text = recommendationReason(recommendation({ decided_by: 'high_miles' }), routes)
+    expect(text).toBe('Fewer high miles than Route B (10 vs 20), 20 min slower than Route B.')
+    expect(text).not.toMatch(/fewest|lowest/i)
   })
 
   it('travel time when everything else ties', () => {

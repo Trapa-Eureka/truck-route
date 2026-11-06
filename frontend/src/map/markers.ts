@@ -45,14 +45,16 @@ async function drawMarker(level: RiskLevel, glyph: WeatherGlyph): Promise<ImageD
   return context.getImageData(0, 0, SIZE * RATIO, SIZE * RATIO)
 }
 
-/** Draws every marker image and adds it to the map. Call before the layer that uses them. */
+/**
+ * Draws every marker image and adds it to the map. Call before the layer that uses them. An image
+ * that cannot be drawn is left out and the others are still added: the checkpoint's dot (a plain
+ * map circle, layers.ts) is under every marker, so the checkpoint stays on the map either way.
+ */
 export async function addWeatherMarkers(map: MapLibreMap): Promise<void> {
-  const images = await Promise.all(
-    RISK_LEVELS.flatMap((level) =>
-      WEATHER_GLYPHS.map(async (glyph) => ({ name: markerImageName(level, glyph), data: await drawMarker(level, glyph) })),
-    ),
-  )
-  for (const { name, data } of images) {
-    if (!map.hasImage(name)) map.addImage(name, data, { pixelRatio: RATIO })
-  }
+  const names = RISK_LEVELS.flatMap((level) => WEATHER_GLYPHS.map((glyph) => ({ level, glyph })))
+  const drawn = await Promise.allSettled(names.map(({ level, glyph }) => drawMarker(level, glyph)))
+  drawn.forEach((result, i) => {
+    const name = markerImageName(names[i].level, names[i].glyph)
+    if (result.status === 'fulfilled' && !map.hasImage(name)) map.addImage(name, result.value, { pixelRatio: RATIO })
+  })
 }

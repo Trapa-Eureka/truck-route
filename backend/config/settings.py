@@ -58,7 +58,23 @@ CACHES = {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
         "LOCATION": "spotter-default",
         "OPTIONS": {"MAX_ENTRIES": 50_000},
-    }
+    },
+    # Request counters (trip/throttling.py), apart from the weather entries that could evict them.
+    "throttle": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "spotter-throttle",
+        "OPTIONS": {"MAX_ENTRIES": 20_000},
+    },
+}
+
+# Requests allowed per client address (trip/throttling.py). One analysis on screen is two "trip"
+# requests (routes, then the heatmap), so these allow 6 analyses a minute and 60 a day; typing
+# in a From / To field is at most 4 "places" requests a second and usually far fewer.
+RATE_LIMITS = {
+    "trip_minute": "12/min",
+    "trip_day": "120/day",
+    "places_minute": "90/min",
+    "places_day": "1500/day",
 }
 
 REST_FRAMEWORK = {
@@ -69,6 +85,24 @@ REST_FRAMEWORK = {
     "UNAUTHENTICATED_USER": None,
     # Every error, ours and DRF's, has the shape in docs/api-contract.md.
     "EXCEPTION_HANDLER": "trip.errors.api_exception_handler",
+    # JSON only: "?format=xml" is an ordinary unknown parameter, not a 404.
+    "URL_FORMAT_OVERRIDE": None,
+    # How many proxies sit in front of the app. The request limits count per client address, and
+    # behind a proxy that address is in X-Forwarded-For; without this number a client could
+    # choose its own. Unset (local development) means the connecting address is used.
+    "NUM_PROXIES": int(os.environ["DJANGO_NUM_PROXIES"]) if os.environ.get("DJANGO_NUM_PROXIES") else None,
+}
+
+# Errors go to the console with their traceback, with DEBUG off too (the host collects stdout).
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {"plain": {"format": "%(asctime)s %(levelname)s %(name)s: %(message)s"}},
+    "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "plain"}},
+    "loggers": {
+        "trip": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "django.request": {"handlers": ["console"], "level": "ERROR", "propagate": False},
+    },
 }
 
 LANGUAGE_CODE = "en-us"

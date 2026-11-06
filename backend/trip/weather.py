@@ -6,9 +6,15 @@ answers.
 
 Rules that matter for correctness
 ---------------------------------
-* The weather for a checkpoint is the forecast for the **hour nearest to its ETA** (a time
-  exactly on the half hour goes to the later hour). The heatmap slider shows whole forecast
-  hours too, so a checkpoint and the heatmap agree on which forecast they show.
+* Wind is an instantaneous value, so a checkpoint uses the forecast for the **hour nearest to
+  its ETA** (a time exactly on the half hour goes to the later hour).
+* Rain and snow are sums over the *preceding* hour: the value stamped 15:00 is what fell from
+  14:00 to 15:00. A checkpoint therefore uses the hour that **contains its ETA**, which is the
+  value stamped at the next full hour (an ETA of 14:05 and one of 14:55 both use 15:00; an ETA
+  exactly on the hour uses that hour). The nearest hour would give an ETA of 14:05 the rain
+  that ended at 14:00, before the truck arrives.
+* The heatmap slider shows whole forecast hours, and for a time exactly on the hour both rules
+  give that hour, so a checkpoint and the heatmap read the same forecast.
 * A missing value is never turned into 0. A ``null`` hour past the end of the forecast is
   ``ForecastOutOfRange``; anything else that is missing or malformed is ``WeatherUnavailable``.
   A stretch with unknown weather must not look safe.
@@ -96,6 +102,20 @@ def nearest_hour(moment: datetime) -> datetime:
     return floor
 
 
+def precipitation_hour(moment: datetime) -> datetime:
+    """The forecast hour (UTC) whose rain and snow sums cover ``moment``.
+
+    Open-Meteo's ``rain``, ``showers`` and ``snowfall`` at hour H are the sums from H-1 to H, so
+    the hour that contains ``moment`` is the next full hour; a time exactly on the hour is the
+    end of its own hour.
+    """
+    if moment.tzinfo is None or moment.utcoffset() is None:
+        raise ValueError("time must be timezone-aware")
+    utc = moment.astimezone(timezone.utc)
+    floor = utc.replace(minute=0, second=0, microsecond=0)
+    return floor if utc == floor else floor + timedelta(hours=1)
+
+
 @dataclass(frozen=True)
 class HourlySeries:
     """The usable hours of one location's answer, plus the hours that came back ``null``."""
@@ -126,7 +146,10 @@ def _number(value: object, name: str) -> float | None:
         return None
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise WeatherUnavailable(f"The weather data has a non-numeric {name}: {value!r}.")
-    number = float(value)
+    try:
+        number = float(value)
+    except OverflowError:  # an integer too large for a float
+        raise WeatherUnavailable(f"The weather data has an invalid {name}.") from None
     if not math.isfinite(number) or number < 0:
         raise WeatherUnavailable(f"The weather data has an invalid {name}: {value!r}.")
     return number
@@ -175,9 +198,12 @@ def _parse_entry(entry: object) -> HourlySeries:
         if wind is None or rain is None or showers is None or snow is None:
             null_hours.add(hour)
             continue
+        liquid = rain + showers
+        if not math.isfinite(liquid):  # two huge values: never cache or classify an infinity
+            raise WeatherUnavailable("The weather data has an invalid rain amount.")
         samples[hour] = WeatherSample(
             wind_mph=wind,
-            rain_in_hr=round(rain + showers, _RAIN_DECIMALS),
+            rain_in_hr=round(liquid, _RAIN_DECIMALS),
             snow_in_hr=snow,
         )
     return HourlySeries(samples=samples, null_hours=frozenset(null_hours))

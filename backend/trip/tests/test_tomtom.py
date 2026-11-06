@@ -11,6 +11,7 @@ from trip.tests.fakes import DictCache, FakeResponse, FakeSession
 from trip.tomtom import (
     BASE_URL,
     GeocodeNotFound,
+    LocationNotCovered,
     NoRoute,
     Place,
     RawRoute,
@@ -63,7 +64,7 @@ class TestGeocode:
         client, session, _ = make(lambda u, p: FakeResponse(200, geocode_body()))
         client.geocode("  Chicago, IL ")
         [(url, params)] = session.calls
-        assert url == f"{BASE_URL}/search/2/geocode/Chicago%2C%20IL.json"
+        assert url == f"{BASE_URL}/search/2/search/Chicago%2C%20IL.json"
         assert params == {"countrySet": "US", "limit": 1, "key": KEY}
 
     def test_special_characters_are_escaped_in_the_path(self):
@@ -71,7 +72,7 @@ class TestGeocode:
         client.geocode("1 Main St/Apt #5? 60601")
         url = session.calls[0][0]
         assert url.endswith(".json") and "#" not in url and "?" not in url
-        assert url.count("/") == BASE_URL.count("/") + 4  # /search/2/geocode/<one segment>.json
+        assert url.count("/") == BASE_URL.count("/") + 4  # /search/2/search/<one segment>.json
 
     def test_no_result(self):
         client, _, _ = make(lambda u, p: FakeResponse(200, {"summary": {"numResults": 0}, "results": []}))
@@ -111,10 +112,197 @@ class TestGeocode:
                 client.geocode("zzzz")
         assert len(session.calls) == 2
 
-    def test_a_400_is_unavailable(self):
+    def test_a_400_means_the_text_cannot_be_found(self):
+        # TomTom answers 400 to a text it cannot search for ("%%%"): the text is the problem.
         client, _, _ = make(lambda u, p: FakeResponse(400, {"detailedError": {}}))
+        with pytest.raises(GeocodeNotFound):
+            client.geocode("%%%")
+
+    def test_a_cached_place_carries_the_callers_own_spelling(self):
+        client, session, _ = make(lambda u, p: FakeResponse(200, geocode_body("Chicago, IL")))
+        first = client.geocode("Chicago, IL")
+        second = client.geocode("CHICAGO, il")
+        assert len(session.calls) == 1
+        assert (first.query, second.query) == ("Chicago, IL", "CHICAGO, il")
+        assert (second.label, second.lat, second.lon) == (first.label, first.lat, first.lon)
+
+
+    def test_a_named_place_keeps_its_name_in_the_label(self):
+        body = {"results": [{"type": "POI", "poi": {"name": "Willis Tower"}, "address": {"freeformAddress": "233 South Wacker Drive, Chicago, IL 60606"}, "position": {"lat": 41.8789, "lon": -87.6359}}]}
+        client, _, _ = make(lambda u, p: FakeResponse(200, body))
+        assert client.geocode("Willis Tower, Chicago").label == "Willis Tower, 233 South Wacker Drive, Chicago, IL 60606"
+
+
+# -------------------------------------------------------------------------------- suggest
+
+
+def result(kind="Point Address", free="233 South Wacker Drive, Chicago, IL 60606", poi=None, lat=41.8789, lon=-87.6354, id="id1"):
+    item = {"type": kind, "id": id, "address": {"freeformAddress": free}, "position": {"lat": lat, "lon": lon}}
+    if poi:
+        item["poi"] = {"name": poi}
+    return item
+
+
+def results_handler(*items):
+    return lambda url, params: FakeResponse(200, {"results": list(items)})
+
+
+class TestSuggest:
+    def test_request_shape(self):
+        client, session, _ = make(results_handler(result()))
+        client.suggest("  233   S Wack ")
+        [(url, params)] = session.calls
+        assert url == f"{BASE_URL}/search/2/search/233%20S%20Wack.json"
+        assert params == {"countrySet": "US", "limit": 10, "typeahead": "true", "key": KEY}
+
+    def test_a_named_place_has_its_name_first_and_the_address_under_it(self):
+        client, _, _ = make(results_handler(result("POI", poi="Willis Tower", id="p1")))
+        [item] = client.suggest("willis tow")
+        assert (item.kind, item.name, item.id) == ("place", "Willis Tower", "p1")
+        assert item.detail == "233 South Wacker Drive, Chicago, IL 60606"
+        assert item.label == "Willis Tower, 233 South Wacker Drive, Chicago, IL 60606"
+        assert (item.lat, item.lon) == (41.8789, -87.6354)
+
+    def test_an_address_is_split_into_street_and_the_rest(self):
+        client, _, _ = make(results_handler(result()))
+        [item] = client.suggest("233 s wack")
+        assert item.kind == "address"
+        assert (item.name, item.detail) == ("233 South Wacker Drive", "Chicago, IL 60606")
+        assert item.label == "233 South Wacker Drive, Chicago, IL 60606"
+
+    def test_a_city_is_an_area(self):
+        client, _, _ = make(results_handler(result("Geography", "Chicago, IL")))
+        [item] = client.suggest("chicago")
+        assert (item.kind, item.name, item.detail, item.label) == ("area", "Chicago", "IL", "Chicago, IL")
+
+    def test_the_same_place_listed_twice_is_shown_once(self):
+        twice = [result("POI", poi="Willis Tower", id="a"), result("POI", poi="Willis Tower", lat=41.88, id="b")]
+        client, _, _ = make(results_handler(*twice, result("POI", poi="Willis Tower", free="205 West Monroe Street, Chicago, IL 60606", id="c")))
+        assert [i.id for i in client.suggest("willis tower")] == ["a", "c"]
+
+    def test_at_most_five_in_tomtoms_order(self):
+        items = [result(free=f"{n} Main Street, Springfield, IL", id=str(n)) for n in range(1, 9)]
+        client, _, _ = make(results_handler(*items))
+        assert [i.id for i in client.suggest("main")] == ["1", "2", "3", "4", "5"]
+
+    def test_an_unreadable_result_is_skipped_but_the_rest_is_kept(self):
+        client, _, _ = make(results_handler({"type": "POI"}, {"position": {"lat": "x", "lon": 1}}, result(id="ok")))
+        assert [i.id for i in client.suggest("wacker")] == ["ok"]
+
+    def test_a_result_without_any_text_is_skipped(self):
+        client, _, _ = make(results_handler(result(free="", id="blank"), result(id="ok")))
+        assert [i.id for i in client.suggest("wacker")] == ["ok"]
+
+    def test_a_missing_id_falls_back_to_the_position(self):
+        item = result()
+        del item["id"]
+        client, _, _ = make(results_handler(item))
+        assert client.suggest("wacker")[0].id == "41.87890,-87.63540"
+
+    @pytest.mark.parametrize("text", ["", " ", "a", " a ", "ab", "  ab  ", "a ", " b"])
+    def test_too_short_makes_no_call(self, text):
+        client, session, _ = make(results_handler(result()))
+        assert client.suggest(text) == []
+        assert session.calls == []
+
+    def test_three_characters_are_enough(self):
+        client, session, _ = make(results_handler(result()))
+        client.suggest("chi")
+        assert len(session.calls) == 1
+
+    def test_no_results_is_an_empty_list(self):
+        client, _, _ = make(results_handler())
+        assert client.suggest("zzzz") == []
+
+    def test_a_repeat_is_served_from_the_cache_ignoring_case_and_spaces(self):
+        client, session, _ = make(results_handler(result()))
+        first = client.suggest("233 S Wack")
+        assert client.suggest("  233  s wack ") == first
+        assert len(session.calls) == 1
+
+    def test_an_empty_answer_is_cached_too(self):
+        client, session, _ = make(results_handler())
+        client.suggest("zzzz")
+        client.suggest("zzzz")
+        assert len(session.calls) == 1
+
+    @pytest.mark.parametrize("body", [{}, {"results": None}, {"results": "x"}, "oops", None])
+    def test_unreadable_answers(self, body):
+        client, _, _ = make(lambda u, p: FakeResponse(200, body))
+        with pytest.raises(RoutingUnavailable, match="cannot be read"):
+            client.suggest("wacker")
+
+    def test_a_400_means_no_matches(self):
+        client, _, _ = make(lambda u, p: FakeResponse(400, {"detailedError": {}}))
+        assert client.suggest("%%%%") == []
+
+    def test_a_rejected_request_is_unavailable_and_never_shows_the_key(self):
+        client, _, _ = make(lambda u, p: FakeResponse(403, {}))
+        with pytest.raises(RoutingUnavailable, match="HTTP 403") as caught:
+            client.suggest("wacker")
+        assert KEY not in str(caught.value)
+
+
+# -------------------------------------------------------------------------------- reverse
+
+
+def reverse_body(label="217 South Wacker Drive, Chicago, IL 60606", country="US"):
+    return {"addresses": [{"address": {"freeformAddress": label, "countryCode": country}, "position": "41.8789,-87.6359"}]}
+
+
+class TestReverse:
+    def test_the_address_at_a_position(self):
+        client, _, _ = make(lambda u, p: FakeResponse(200, reverse_body()))
+        place = client.reverse(41.878912345, -87.635912345)
+        assert place == Place(query="41.87891,-87.63591", label="217 South Wacker Drive, Chicago, IL 60606", lat=41.87891, lon=-87.63591)
+
+    def test_request_shape(self):
+        client, session, _ = make(lambda u, p: FakeResponse(200, reverse_body()))
+        client.reverse(41.8789, -87.6359)
+        [(url, params)] = session.calls
+        assert url == f"{BASE_URL}/search/2/reverseGeocode/41.878900,-87.635900.json"
+        assert params == {"radius": 1000, "key": KEY}
+
+    def test_a_position_outside_the_us_is_refused(self):
+        client, _, _ = make(lambda u, p: FakeResponse(200, reverse_body("Seoul-Jikhalsi", "KR")))
+        with pytest.raises(LocationNotCovered):
+            client.reverse(37.5665, 126.978)
+
+    @pytest.mark.parametrize("body", [{"addresses": []}, reverse_body(label="")])
+    def test_no_address_nearby_is_refused(self, body):
+        client, _, _ = make(lambda u, p: FakeResponse(200, body))
+        with pytest.raises(LocationNotCovered):
+            client.reverse(41.5, -85.0)
+
+    def test_a_missing_country_is_refused(self):
+        body = {"addresses": [{"address": {"freeformAddress": "Somewhere"}}]}
+        client, _, _ = make(lambda u, p: FakeResponse(200, body))
+        with pytest.raises(LocationNotCovered):
+            client.reverse(41.5, -85.0)
+
+    @pytest.mark.parametrize("body", [{}, {"addresses": None}, {"addresses": [{}]}, {"addresses": ["x"]}, "oops", None])
+    def test_unreadable_answers(self, body):
+        client, _, _ = make(lambda u, p: FakeResponse(200, body))
+        with pytest.raises(RoutingUnavailable, match="cannot be read"):
+            client.reverse(41.5, -85.0)
+
+    def test_a_repeat_nearby_is_served_from_the_cache(self):
+        client, session, _ = make(lambda u, p: FakeResponse(200, reverse_body()))
+        client.reverse(41.87891, -87.63591)
+        client.reverse(41.878912, -87.635908)  # the same to 4 decimals (about 10 m)
+        assert len(session.calls) == 1
+
+    def test_a_refusal_is_not_cached(self):
+        client, session, _ = make(lambda u, p: FakeResponse(200, reverse_body("Seoul", "KR")))
+        for _ in range(2):
+            with pytest.raises(LocationNotCovered):
+                client.reverse(37.5665, 126.978)
+        assert len(session.calls) == 2
+
+    def test_a_400_is_unavailable(self):
+        client, _, _ = make(lambda u, p: FakeResponse(400, {}))
         with pytest.raises(RoutingUnavailable, match="HTTP 400"):
-            client.geocode("x")
+            client.reverse(41.5, -85.0)
 
 
 # ----------------------------------------------------------------------------------- routes
@@ -217,6 +405,30 @@ class TestRouteErrors:
         with pytest.raises(NoRoute):
             client.routes(CHICAGO, DENVER, DEPART, 1000)
         assert len(session.calls) == 1  # not retried
+
+    @pytest.mark.parametrize(
+        "instructions, points",
+        [
+            ([(0, 0, 0), (1, 600, 101), (2, 1000, 100)], None),  # a turn a second after the arrival
+            ([(0, 0, 0), (1, 1001, 60), (2, 1000, 100)], None),  # a turn a meter past the end
+            ([(0, 0, 0), (7, 600, 60), (2, 1000, 100)], None),  # a point index past the line
+            ([(0, 0, 0)], [(41.0, -87.0)]),                      # a single point
+        ],
+    )
+    def test_a_route_that_checkpoints_cannot_be_built_from_is_refused_and_not_cached(self, instructions, points):
+        broken = route_json(points or [(41.0, -87.0), (41.1, -87.1), (41.2, -87.2)], instructions)
+        client, session, _ = make(routes_handler([ROUTE_A, broken]))
+        for _ in range(2):
+            with pytest.raises(RoutingUnavailable, match="not consistent"):
+                client.routes(CHICAGO, DENVER, DEPART, 1000)
+        assert len(session.calls) == 2  # asked again: the broken answer was not kept
+
+    def test_a_route_of_length_zero_is_passed_on(self):
+        # The caller reports it as "the origin and the destination are the same place".
+        same = route_json([(41.0, -87.0), (41.0, -87.0)], [(0, 0, 0), (1, 0, 0)], length=0, time=0)
+        client, _, _ = make(routes_handler([same]))
+        [route] = client.routes(CHICAGO, DENVER, DEPART, 1000)
+        assert route.length_m == 0
 
     def test_other_bad_requests_are_unavailable_not_no_route(self):
         client, _, _ = make(lambda u, p: FakeResponse(400, {"detailedError": {"code": "INVALID_PARAMETER"}}))

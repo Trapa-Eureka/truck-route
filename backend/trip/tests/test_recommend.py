@@ -1,4 +1,4 @@
-"""Tests for trip/recommend.py: strict priority order, rounded ties, No Travel handling."""
+"""Tests for trip/recommend.py: strict priority order, small differences, No Travel handling."""
 
 import itertools
 import random
@@ -16,7 +16,7 @@ L, M, H, S, N = (RiskLevel.LOW, RiskLevel.MODERATE, RiskLevel.HIGH, RiskLevel.SE
 
 
 def route(severe=0, high=0, avg=0.0, minutes=600, no_travel=False):
-    """A summary with exactly these display values."""
+    """A summary with exactly these values."""
     return RouteSummary(
         distance_miles=1000,
         duration_minutes=minutes,
@@ -118,44 +118,69 @@ class TestNotABlendedScore:
 # ------------------------------------------------------------------- ties use the rounded values
 
 
-class TestRoundedTies:
-    def test_severe_miles_that_round_alike_are_a_tie_and_time_decides(self):
-        # 24.6 and 25.4 both show as 25 severe miles; unrounded, A would win on criterion 1.
-        # Over 2,000 miles their average risk also shows alike (0.0369 and 0.0381 -> 0.04).
+class TestSmallDifferences:
+    """Severe miles, High miles and average risk are compared at full precision."""
+
+    def test_fewer_severe_miles_win_even_when_both_read_25_on_a_card(self):
+        # 24.6 and 25.4 both show as 25 severe miles. B is 50 minutes faster, but the PDF's first
+        # criterion is "fewest Severe miles": a later criterion must not overrule it.
         a = built([(S, 24.6), (L, 1975.4)], minutes=700)
         b = built([(S, 25.4), (L, 1974.6)], minutes=650)
-        assert (a.severe_miles, b.severe_miles) == (25, 25)
-        assert (a.avg_risk, b.avg_risk) == (0.04, 0.04)
-        result = recommend({"A": a, "B": b})
-        assert (result.route_id, result.decided_by) == ("B", Criterion.DURATION)
-
-    def test_a_half_mile_tie_rounds_up_for_both(self):
-        a = built([(S, 24.5), (L, 1975.5)], minutes=700)
-        b = built([(S, 25.4), (L, 1974.6)], minutes=650)
-        assert (a.severe_miles, b.severe_miles) == (25, 25)
-        assert (a.avg_risk, b.avg_risk) == (0.04, 0.04)
-        assert recommend({"A": a, "B": b}).route_id == "B"
-
-    def test_a_real_one_mile_difference_still_decides(self):
-        a = built([(S, 24.4), (L, 975.6)], minutes=700)  # shows 24
-        b = built([(S, 25.4), (L, 974.6)], minutes=650)  # shows 25
+        assert (round(a.severe_miles), round(b.severe_miles)) == (25, 25)
         result = recommend({"A": a, "B": b})
         assert (result.route_id, result.decided_by) == ("A", Criterion.SEVERE_MILES)
 
-    def test_high_miles_round_alike_then_average_decides(self):
+    def test_a_severe_stretch_under_half_a_mile_still_counts(self):
+        # A 190.4 mile route at 10 mile checkpoints: the destination stands for 0.2 miles.
+        a = built([(L, 190.2), (S, 0.2)], minutes=200)
+        b = built([(L, 195.0)], minutes=247)
+        assert a.severe_miles == 0.2
+        assert a.avg_risk > 0
+        result = recommend({"A": a, "B": b})
+        assert (result.route_id, result.decided_by) == ("B", Criterion.SEVERE_MILES)
+
+    def test_a_real_one_mile_difference_decides(self):
+        a = built([(S, 24.4), (L, 975.6)], minutes=700)
+        b = built([(S, 25.4), (L, 974.6)], minutes=650)
+        result = recommend({"A": a, "B": b})
+        assert (result.route_id, result.decided_by) == ("A", Criterion.SEVERE_MILES)
+
+    def test_high_miles_that_read_alike_still_decide(self):
         a = built([(H, 40.4), (M, 100.0), (L, 859.6)], minutes=700)
         b = built([(H, 39.6), (M, 150.0), (L, 810.4)], minutes=650)
-        assert (a.high_miles, b.high_miles) == (40, 40)
-        assert a.avg_risk != b.avg_risk
+        assert a.avg_risk < b.avg_risk  # the average would pick A; High miles come first
         result = recommend({"A": a, "B": b})
-        assert result.decided_by == Criterion.AVG_RISK
-        assert result.route_id == "A"  # lower average
+        assert (result.route_id, result.decided_by) == ("B", Criterion.HIGH_MILES)
 
-    def test_average_risk_that_rounds_alike_then_time_decides(self):
+    def test_average_risk_that_reads_alike_still_decides(self):
         # 331 / 1000 = 0.331 and 334 / 1000 = 0.334 both show as 0.33
         a = built([(M, 331.0), (L, 669.0)], minutes=700)
         b = built([(M, 334.0), (L, 666.0)], minutes=650)
-        assert (a.avg_risk, b.avg_risk) == (0.33, 0.33)
+        result = recommend({"A": a, "B": b})
+        assert (result.route_id, result.decided_by) == ("A", Criterion.AVG_RISK)
+
+    def test_a_long_route_does_not_hide_moderate_miles(self):
+        # Over 3,000 miles, 15.3 and 44.7 Moderate miles are averages of 0.0051 and 0.0149:
+        # both "0.01" on a card, yet one route has three times the Moderate miles.
+        a = built([(M, 15.3), (L, 2984.7)], minutes=901)
+        b = built([(M, 44.7), (L, 2955.3)], minutes=900)
+        result = recommend({"A": a, "B": b})
+        assert (result.route_id, result.decided_by) == ("A", Criterion.AVG_RISK)
+
+    def test_calm_routes_tie_exactly_and_time_decides(self):
+        # The common case: every route all Low. Nothing has to be rounded for criterion 4 to decide.
+        a = built([(L, 1006.3)], minutes=846)
+        b = built([(L, 1164.2)], minutes=996)
+        c = built([(L, 250.1), (L, 1087.9)], minutes=1170)
+        assert (a.severe_miles, a.high_miles, a.avg_risk) == (0, 0, 0)
+        result = recommend({"C": c, "B": b, "A": a})
+        assert (result.route_id, result.decided_by) == ("A", Criterion.DURATION)
+
+    def test_float_noise_is_not_a_difference(self):
+        # 0.1 + 0.2 is 0.30000000000000004 in floating point; it must equal a plain 0.3.
+        a = built([(S, 0.1), (S, 0.2), (L, 99.7)], minutes=700)
+        b = built([(S, 0.3), (L, 99.7)], minutes=650)
+        assert a.severe_miles == b.severe_miles == 0.3
         result = recommend({"A": a, "B": b})
         assert (result.route_id, result.decided_by) == ("B", Criterion.DURATION)
 
