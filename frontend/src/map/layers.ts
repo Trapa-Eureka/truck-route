@@ -1,15 +1,19 @@
 import type { ExpressionSpecification, LineLayerSpecification, Map as MapLibreMap } from 'maplibre-gl'
 import { OTHER_ROUTE_COLOR, RISK_COLORS, RISK_LEVELS } from '../lib/risk'
 import { checkpointDots, placeDots, riskSegments, routeLines } from './geo'
+import { heatColor, heatOpacity } from './heat'
 
 export const SOURCE = {
   routes: 'routes',
   risk: 'risk-segments',
   checkpoints: 'checkpoints',
   places: 'places',
+  heat: 'heat',
+  truck: 'truck',
 } as const
 
 export const LAYER = {
+  heat: 'heat',
   routeHit: 'route-hit',
   routeCasing: 'route-casing',
   routeOther: 'route-other',
@@ -17,6 +21,7 @@ export const LAYER = {
   checkpoints: 'checkpoints',
   checkpointActive: 'checkpoint-active',
   places: 'places',
+  truck: 'truck',
 } as const
 
 /** `['match', ['get', 'level'], 'low', '#...', ..., fallback]` from the shared palette. */
@@ -26,9 +31,9 @@ function levelColor(): ExpressionSpecification {
 }
 
 /**
- * Adds the empty sources and the layers, bottom to top:
- * click target, white outline, gray other routes, the selected route in risk colors,
- * checkpoint dots, the ring around the active checkpoint, origin and destination.
+ * Adds the empty sources and the layers, bottom to top: the forecast heatmap, click target,
+ * white outline, gray other routes, the selected route in risk colors, checkpoint dots, the ring
+ * around the active checkpoint, the truck, origin and destination.
  * They are drawn above the base map: under its label layer the base map's roads covered them.
  */
 export function addRouteLayers(map: MapLibreMap): void {
@@ -36,8 +41,24 @@ export function addRouteLayers(map: MapLibreMap): void {
   map.addSource(SOURCE.risk, { type: 'geojson', data: riskSegments(undefined) })
   map.addSource(SOURCE.checkpoints, { type: 'geojson', data: checkpointDots(undefined) })
   map.addSource(SOURCE.places, { type: 'geojson', data: placeDots(null, null) })
+  map.addSource(SOURCE.heat, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  map.addSource(SOURCE.truck, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
 
   const roundLine: LineLayerSpecification['layout'] = { 'line-join': 'round', 'line-cap': 'round' }
+
+  // The forecast heatmap sits under every route line. Soft, overlapping circles blend into a
+  // surface; the colour and strength are read from the property of the slider's hour.
+  map.addLayer({
+    id: LAYER.heat,
+    type: 'circle',
+    source: SOURCE.heat,
+    paint: {
+      'circle-radius': 20,
+      'circle-blur': 1,
+      'circle-color': heatColor(0) as ExpressionSpecification,
+      'circle-opacity': heatOpacity(0) as ExpressionSpecification,
+    },
+  })
 
   // A wide invisible line: makes thin gray routes easy to click.
   map.addLayer({
@@ -95,6 +116,17 @@ export function addRouteLayers(map: MapLibreMap): void {
       'circle-color': '#ffffff',
       'circle-opacity': 0,
       'circle-stroke-color': '#1a2530',
+      'circle-stroke-width': 3,
+    },
+  })
+  map.addLayer({
+    id: LAYER.truck,
+    type: 'circle',
+    source: SOURCE.truck,
+    paint: {
+      'circle-radius': 9,
+      'circle-color': '#1a2530',
+      'circle-stroke-color': '#ffffff',
       'circle-stroke-width': 3,
     },
   })

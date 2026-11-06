@@ -120,6 +120,7 @@ Example: the values above are shown in the UI as "25 severe miles, 20 min slower
 {
   "start": "2026-11-09T14:00:00Z",
   "hours": 49,
+  "spacing_deg": 0.5,
   "points": [[-87.5, 41.5], [-87.0, 41.5]],
   "levels": [
     [0, 0],
@@ -128,8 +129,8 @@ Example: the values above are shown in the UI as "25 severe miles, 20 min slower
 }
 ```
 
-- `start` is slider hour 0 = **the departure time floored to the hour** (CLAUDE.md section 2). `hours` is `49` (hours 0 to 48).
-- `points` are grid points `[lon, lat]` (0.5° spacing, 40 miles on each side of the union of the 3 routes, CLAUDE.md section 7).
+- `start` is slider hour 0 = **the departure time rounded to the nearest hour** (a time exactly on :30 goes to the later hour), the same rule checkpoints use, so a checkpoint and the heatmap show the same forecast (CLAUDE.md sections 2 and 7). `hours` is `49` (hours 0 to 48): `levels[h]` is the forecast `h` hours after `start`.
+- `points` are grid points `[lon, lat]` on exact multiples of `spacing_deg`, within 40 miles of any of the routes (CLAUDE.md section 7). `spacing_deg` is `0.5` (about 34 miles); a trip that would need more than 600 points gets `1.0` or `2.0` instead, so one heatmap never costs more than 600 weather calls.
 - `levels[h][i]` is the level `0` to `4` at point `i` at hour `h`. It is computed with **the same rules as checkpoints (including the load rules)**, so route colors and heatmap colors match.
 - Points and hours that contain `null` are not produced; they are treated as errors (CLAUDE.md section 7).
 

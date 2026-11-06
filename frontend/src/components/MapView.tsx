@@ -4,16 +4,19 @@ import {
   NavigationControl,
   Popup,
   setWorkerUrl,
+  type ExpressionSpecification,
   type GeoJSONSource,
   type MapMouseEvent,
 } from 'maplibre-gl'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { useEffect, useRef, useState } from 'react'
+import { heatFeatures } from '../lib/heatmap'
 import { checkpointDots, placeDots, riskSegments, routeLines } from '../map/geo'
+import { heatColor, heatOpacity, heatRadius } from '../map/heat'
 import { addRouteLayers, LAYER, SOURCE } from '../map/layers'
 import { checkpointPopupContent } from '../map/popup'
-import type { ResolvedPlace, Route } from '../types/api'
+import type { Coordinate, HeatmapResponse, ResolvedPlace, Route } from '../types/api'
 
 // MapLibre finds its worker with new URL('./maplibre-gl-worker.mjs', import.meta.url). In a
 // production bundle that points at /assets/maplibre-gl-worker.mjs, which the build never emits
@@ -41,6 +44,11 @@ interface Props {
   origin: ResolvedPlace | null
   destination: ResolvedPlace | null
   focus: CheckpointFocus | null
+  /** The forecast grid, loaded once, and the slider hour that picks which level to show. */
+  heatmap: HeatmapResponse | null
+  hour: number
+  /** Where the truck is at that hour on the selected route. */
+  truck: Coordinate | null
   onSelectRoute: (id: string) => void
   /** A checkpoint dot was clicked (index) or its popup was closed (null). */
   onSelectCheckpoint: (index: number | null) => void
@@ -56,6 +64,9 @@ export default function MapView({
   origin,
   destination,
   focus,
+  heatmap,
+  hour,
+  truck,
   onSelectRoute,
   onSelectCheckpoint,
 }: Props) {
@@ -129,6 +140,36 @@ export default function MapView({
     if (!ready || !map) return
     setData(map, SOURCE.places, placeDots(origin, destination))
   }, [ready, origin, destination])
+
+  // Load the whole 48-hour grid into the map once.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!ready || !map) return
+    if (heatmap === null) {
+      setData(map, SOURCE.heat, { type: 'FeatureCollection', features: [] })
+      return
+    }
+    setData(map, SOURCE.heat, heatFeatures(heatmap) as Parameters<typeof setData>[2])
+    const meanLat = heatmap.points.reduce((sum, [, lat]) => sum + lat, 0) / Math.max(1, heatmap.points.length)
+    map.setPaintProperty(LAYER.heat, 'circle-radius', heatRadius(heatmap.spacing_deg, meanLat) as ExpressionSpecification)
+  }, [ready, heatmap])
+
+  // Moving the slider only changes which property the colour is read from: no data is sent or fetched.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!ready || !map) return
+    map.setPaintProperty(LAYER.heat, 'circle-color', heatColor(hour) as ExpressionSpecification)
+    map.setPaintProperty(LAYER.heat, 'circle-opacity', heatOpacity(hour) as ExpressionSpecification)
+  }, [ready, hour])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!ready || !map) return
+    setData(map, SOURCE.truck, {
+      type: 'FeatureCollection',
+      features: truck ? [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: truck } }] : [],
+    })
+  }, [ready, truck])
 
   // Zoom to the routes when a new analysis arrives (not when the selection changes).
   useEffect(() => {

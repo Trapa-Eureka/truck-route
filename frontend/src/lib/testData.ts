@@ -24,10 +24,11 @@ interface RouteOptions {
   minutes?: number
   noTravelMiles?: number
   checkpoints?: Checkpoint[]
+  geometry?: Route['geometry']
 }
 
 export function route(id: string, options: RouteOptions = {}): Route {
-  const { severe = 0, high = 0, avg = 0, minutes = 600, noTravelMiles = 0, checkpoints = [checkpoint()] } = options
+  const { severe = 0, high = 0, avg = 0, minutes = 600, noTravelMiles = 0, checkpoints = [checkpoint()], geometry } = options
   const miles_by_level: Record<RiskLevel, number> = {
     low: 100,
     moderate: 0,
@@ -47,7 +48,7 @@ export function route(id: string, options: RouteOptions = {}): Route {
       avg_risk: avg,
       has_no_travel: noTravelMiles > 0,
     },
-    geometry: [
+    geometry: geometry ?? [
       [-87.63, 41.88],
       [-87.7, 41.9],
     ],
@@ -66,4 +67,18 @@ export function recommendation(overrides: Partial<Recommendation> = {}): Recomme
     ranking: ['A', 'B'],
     ...overrides,
   }
+}
+
+/** A route going east along 40 degrees north, with checkpoints at the given miles and ETAs. */
+export function eastwardRoute(
+  stops: { mile: number; eta: string }[],
+  geometry: Route['geometry'] = [
+    [-90, 40],
+    [-89, 40],
+  ],
+): Route {
+  return route('A', {
+    checkpoints: stops.map((stop, index) => checkpoint({ index, mile: stop.mile, eta: stop.eta })),
+    geometry,
+  })
 }

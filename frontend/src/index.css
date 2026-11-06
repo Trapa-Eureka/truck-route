@@ -421,6 +421,71 @@ button.primary:disabled {
   box-shadow: 0 0 0 1px rgba(26, 37, 48, 0.35);
 }
 
+.legend-note {
+  max-width: 190px;
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+/* ---------- forecast slider (on the map) ---------- */
+
+.forecast {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  z-index: 2;
+  width: min(540px, calc(100% - 120px));
+  transform: translateX(-50%);
+  padding: 10px 14px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.25);
+  font-size: 13px;
+}
+
+.forecast-label {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 12px;
+  font-weight: 700;
+}
+
+.forecast-label output {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.forecast input[type='range'] {
+  width: 100%;
+  margin: 8px 0 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.forecast-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.forecast-truck {
+  margin: 6px 0 0;
+  font-weight: 600;
+}
+
+.forecast-message {
+  margin: 0;
+  color: var(--muted);
+}
+
+.forecast-message.error {
+  color: var(--danger);
+}
+
 /* ---------- checkpoint timeline ---------- */
 
 .timeline h2 {

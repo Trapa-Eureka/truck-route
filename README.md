@@ -38,7 +38,7 @@ Load rules:
 - **Recommendation reason**: the recommended route shows its reason in one line (for example "0 severe miles, 20 min slower than Route B").
 - **Checkpoints**: each checkpoint shows its estimated arrival time (ETA), the weather at that time, and its risk level.
 - **No Travel warning**: if a route has a No Travel stretch, a large warning banner is shown.
-- **Forecast slider**: moving the 0–48 hour slider changes the weather heatmap and the truck's expected position on the map together.
+- **Forecast slider**: moving the 0–48 hour slider changes the weather heatmap and the truck's expected position on the map together. Hour 0 is the departure hour (the departure rounded to the nearest hour) and the date and time of the chosen hour are shown next to the slider. The whole 48 hours are loaded once, so moving the slider never calls the server.
 
 ## Rule interpretations and assumptions
 

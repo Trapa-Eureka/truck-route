@@ -207,3 +207,55 @@ class TestSettings:
         monkeypatch.setattr(services_module, "_tomtom", None)
         settings.TOMTOM_API_KEY = "k"
         assert services_module.get_tomtom() is services_module.get_tomtom()
+
+
+class TestHeatmapView:
+    URL = "/api/heatmap"
+
+    def test_200_with_the_grid(self, client, services):
+        response = client.post(self.URL, payload(), format="json")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["hours"] == 49 and len(body["levels"]) == 49
+        assert len(body["levels"][0]) == len(body["points"])
+
+    def test_the_same_body_as_analyze(self, client, services):
+        data = payload()
+        assert client.post(URL, data, format="json").status_code == 200
+        assert client.post(self.URL, data, format="json").status_code == 200
+
+    def test_validation_errors_use_the_same_shape(self, client, services):
+        response = client.post(self.URL, payload(interval_miles=30), format="json")
+        assert response.status_code == 400
+        assert response.json()["error"]["field"] == "interval_miles"
+
+    def test_validation_happens_before_any_service_is_used(self, client, monkeypatch):
+        def boom():
+            raise AssertionError("a service was created for an invalid request")
+
+        monkeypatch.setattr(views, "get_tomtom", boom)
+        monkeypatch.setattr(views, "get_weather", boom)
+        assert client.post(self.URL, payload(origin=""), format="json").status_code == 400
+
+    def test_forecast_out_of_range_is_422_with_the_end(self, client, services, monkeypatch):
+        from datetime import datetime, timezone as tz
+
+        class Failing:
+            def get_weather_at(self, queries):
+                raise ForecastOutOfRange("x", forecast_end=datetime(2026, 11, 21, 18, tzinfo=tz.utc))
+
+        monkeypatch.setattr(views, "get_weather", lambda: Failing())
+        response = client.post(self.URL, payload(), format="json")
+        assert response.status_code == 422
+        assert response.json()["error"]["forecast_end"] == "2026-11-21T18:00:00Z"
+
+    def test_weather_outage_is_502(self, client, services, monkeypatch):
+        class Failing:
+            def get_weather_at(self, queries):
+                raise WeatherUnavailable("down")
+
+        monkeypatch.setattr(views, "get_weather", lambda: Failing())
+        assert client.post(self.URL, payload(), format="json").status_code == 502
+
+    def test_get_is_not_allowed(self, client, services):
+        assert client.get(self.URL).status_code == 405

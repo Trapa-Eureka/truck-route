@@ -158,12 +158,13 @@ def _stretch_ends_m(checkpoints: Sequence[Checkpoint]) -> list[float]:
     return ends
 
 
-def analyze(
-    request: AnalyzeRequest, routing: RoutingService, weather: WeatherService
-) -> dict[str, Any]:
-    """Run one analysis and return the ``POST /api/analyze`` response body.
+def resolve_trip(
+    request: AnalyzeRequest, routing: RoutingService
+) -> tuple[Place, Place, list[RawRoute]]:
+    """Geocode both ends and fetch the routes. Shared by the analysis and the heatmap.
 
-    Raises the domain exceptions that ``errors.api_exception_handler`` turns into API errors.
+    The routes come from the routing client's cache when the same trip was asked for just
+    before, so the second endpoint does not call TomTom again.
     """
     origin, destination = _geocode_both(routing, request)
     if _same_place(origin, destination):
@@ -172,6 +173,17 @@ def analyze(
     raw_routes = routing.routes(origin, destination, request.departure, request.load_weight_lb)
     if any(raw.length_m <= 0 for raw in raw_routes):
         raise InvalidInput("The origin and the destination are the same place.", "destination")
+    return origin, destination, raw_routes
+
+
+def analyze(
+    request: AnalyzeRequest, routing: RoutingService, weather: WeatherService
+) -> dict[str, Any]:
+    """Run one analysis and return the ``POST /api/analyze`` response body.
+
+    Raises the domain exceptions that ``errors.api_exception_handler`` turns into API errors.
+    """
+    origin, destination, raw_routes = resolve_trip(request, routing)
 
     checkpoints = [
         build_checkpoints(

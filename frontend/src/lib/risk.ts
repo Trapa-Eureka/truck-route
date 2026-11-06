@@ -28,3 +28,9 @@ export const RISK_COLORS: Record<RiskLevel, string> = {
 
 /** Routes that are not selected. */
 export const OTHER_ROUTE_COLOR = '#8a949e'
+
+/**
+ * How strong the heatmap shading is for each level (index = level). Calm weather is faint so the
+ * trouble spots stand out; the colors are the same as the route's.
+ */
+export const HEAT_OPACITY: readonly number[] = [0.16, 0.4, 0.5, 0.58, 0.66]

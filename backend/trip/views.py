@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .analysis import analyze
+from .heatmap import heatmap
 from .services import get_tomtom, get_weather
 from .validation import parse_analyze_request
 
@@ -17,3 +18,11 @@ class AnalyzeView(APIView):
     def post(self, request) -> Response:
         parsed = parse_analyze_request(request.data, now=timezone.now())
         return Response(analyze(parsed, get_tomtom(), get_weather()))
+
+
+class HeatmapView(APIView):
+    """``POST /api/heatmap``: the risk level on a grid around the routes for hours 0 to 48."""
+
+    def post(self, request) -> Response:
+        parsed = parse_analyze_request(request.data, now=timezone.now())
+        return Response(heatmap(parsed, get_tomtom(), get_weather()))

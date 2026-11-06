@@ -100,10 +100,12 @@ export interface AnalyzeResponse {
 }
 
 export interface HeatmapResponse {
-  /** ISO 8601 UTC, slider hour 0 (departure floored to the hour). */
+  /** ISO 8601 UTC, slider hour 0 (the departure rounded to the nearest hour). */
   start: string
   /** Always 49 (hours 0 to 48). */
   hours: number
+  /** Grid spacing in degrees (0.5, or coarser for very large trips). */
+  spacing_deg: number
   points: Coordinate[]
   /** levels[hour][pointIndex] */
   levels: RiskLevelIndex[][]
