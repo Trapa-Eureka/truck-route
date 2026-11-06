@@ -1,6 +1,6 @@
 # API contract (v1, finalized 2026-11-06; summary precision, forecast hours and error codes revised after the pre-deployment review)
 
-[한국어](./api-contract.ko.md)
+[KOREAN](./api-contract.ko.md)
 
 The format exchanged between the backend (Django) and the frontend (React). The rules come from `CLAUDE.md` (cited by section number), and the types in `frontend/src/types/api.ts` carry the same content. If the two disagree, this document wins.
 
@@ -18,12 +18,12 @@ The format exchanged between the backend (Django) and the frontend (React). The 
 
 Route/checkpoint calculation and the heatmap are independent, so they are **split into two endpoints**. This lets the route results appear first and the heatmap fill in afterwards (perceived UI speed). Both endpoints take **the same request body**, and the TomTom route response is cached per request so the second call does not call TomTom again.
 
-| Method | Path | Purpose |
-|---|---|---|
-| `POST` | `/api/analyze` | 3 routes, checkpoints, risk summary, recommendation |
-| `POST` | `/api/heatmap` | 0–48 hour weather scores on a grid around the routes |
-| `GET` | `/api/places?q=` | Up to 5 places, addresses and cities for the text being typed (the From / To list) |
-| `GET` | `/api/places/reverse?lat=&lon=` | The address at a position (the "my location" button) |
+| Method | Path                            | Purpose                                                                            |
+| ------ | ------------------------------- | ---------------------------------------------------------------------------------- |
+| `POST` | `/api/analyze`                  | 3 routes, checkpoints, risk summary, recommendation                                |
+| `POST` | `/api/heatmap`                  | 0–48 hour weather scores on a grid around the routes                               |
+| `GET`  | `/api/places?q=`                | Up to 5 places, addresses and cities for the text being typed (the From / To list) |
+| `GET`  | `/api/places/reverse?lat=&lon=` | The address at a position (the "my location" button)                               |
 
 ### Request body (shared)
 
@@ -37,19 +37,29 @@ Route/checkpoint calculation and the heatmap are independent, so they are **spli
 }
 ```
 
-| Field | Format | Rules |
-|---|---|---|
-| `origin`, `destination` | string **or** place | A **string** is typed text: the server takes the first result of TomTom Fuzzy Search for it (`countrySet=US`; it finds addresses, cities and named places such as "Willis Tower, Chicago"). Not empty, at most 200 characters; runs of spaces, tabs and line breaks become one space, and control characters are refused. A **place** `{ "label": "...", "lat": 41.8789, "lon": -87.6359 }` is a choice from the list (or "my location"): it is used as it is, with no lookup, so the position cannot change between choosing and routing (`label` as a string above; `lat` and `lon` finite numbers **inside the United States**: a coarse box of latitude 18 to 72 and longitude -180 to -66, which holds the 50 states and Puerto Rico. A place outside it is refused with `INVALID_INPUT` on that field, because the place search is US only and a request built by hand must not get around that). The two ends can be mixed. If both resolve to the same place the request is refused (`INVALID_INPUT`, `field: destination`) |
-| `departure` | ISO 8601 **with a time zone** | **Must not be in the past**; a departure up to 5 minutes ago is accepted, because a form that says "now" is already a few seconds old when it arrives. A date before 2100 (this only keeps date arithmetic safe; the forecast is the real limit). If the needed hours run past the end of the forecast, `FORECAST_OUT_OF_RANGE` (see CLAUDE.md section 7) |
-| `load_weight_lb` | number | 0 to 1,000,000. Used in lb as given for the rules, and converted to kg for TomTom |
-| `interval_miles` | `10` \| `25` \| `50` | Only these three values are allowed (the frontend fills in 25 as the default) |
+| Field                   | Format                        | Rules                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ----------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `origin`, `destination` | string **or** place           | A **string** is typed text: the server takes the first result of TomTom Fuzzy Search for it (`countrySet=US`; it finds addresses, cities and named places such as "Willis Tower, Chicago"). Not empty, at most 200 characters; runs of spaces, tabs and line breaks become one space, and control characters are refused. A **place** `{ "label": "...", "lat": 41.8789, "lon": -87.6359 }` is a choice from the list (or "my location"): it is used as it is, with no lookup, so the position cannot change between choosing and routing (`label` as a string above; `lat` and `lon` finite numbers **inside the United States**: a coarse box of latitude 18 to 72 and longitude -180 to -66, which holds the 50 states and Puerto Rico. A place outside it is refused with `INVALID_INPUT` on that field, because the place search is US only and a request built by hand must not get around that). The two ends can be mixed. If both resolve to the same place the request is refused (`INVALID_INPUT`, `field: destination`) |
+| `departure`             | ISO 8601 **with a time zone** | **Must not be in the past**; a departure up to 5 minutes ago is accepted, because a form that says "now" is already a few seconds old when it arrives. A date before 2100 (this only keeps date arithmetic safe; the forecast is the real limit). If the needed hours run past the end of the forecast, `FORECAST_OUT_OF_RANGE` (see CLAUDE.md section 7)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `load_weight_lb`        | number                        | 0 to 1,000,000. Used in lb as given for the rules, and converted to kg for TomTom                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `interval_miles`        | `10` \| `25` \| `50`          | Only these three values are allowed (the frontend fills in 25 as the default)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
 ### `POST /api/analyze` response (200)
 
 ```json
 {
-  "origin":      { "query": "Chicago, IL", "label": "Chicago, IL", "lat": 41.883229, "lon": -87.632398 },
-  "destination": { "query": "Denver, CO",  "label": "Denver, CO",  "lat": 39.738453, "lon": -104.984853 },
+  "origin": {
+    "query": "Chicago, IL",
+    "label": "Chicago, IL",
+    "lat": 41.883229,
+    "lon": -87.632398
+  },
+  "destination": {
+    "query": "Denver, CO",
+    "label": "Denver, CO",
+    "lat": 39.738453,
+    "lon": -104.984853
+  },
   "routes": [
     {
       "id": "A",
@@ -57,15 +67,30 @@ Route/checkpoint calculation and the heatmap are independent, so they are **spli
         "distance_miles": 1006,
         "duration_minutes": 846,
         "arrival": "2026-11-10T04:06:00Z",
-        "miles_by_level": { "low": 790.12, "moderate": 130.4, "high": 60.61, "severe": 24.87, "no_travel": 0 },
+        "miles_by_level": {
+          "low": 790.12,
+          "moderate": 130.4,
+          "high": 60.61,
+          "severe": 24.87,
+          "no_travel": 0
+        },
         "severe_miles": 24.87,
         "high_miles": 60.61,
         "avg_risk": 0.3243,
         "has_no_travel": false
       },
-      "geometry": [[-87.6324, 41.88323], [-87.63241, 41.8835]],
+      "geometry": [
+        [-87.6324, 41.88323],
+        [-87.63241, 41.8835]
+      ],
       "segments": [
-        { "level": "low", "coordinates": [[-87.6324, 41.88323], [-87.63241, 41.8835]] }
+        {
+          "level": "low",
+          "coordinates": [
+            [-87.6324, 41.88323],
+            [-87.63241, 41.8835]
+          ]
+        }
       ],
       "checkpoints": [
         {
@@ -106,14 +131,14 @@ Route/checkpoint calculation and the heatmap are independent, so they are **spli
 
 **`recommendation` fields**
 
-| Field | Description |
-|---|---|
-| `route_id` | The recommended route. **`null` if every route has No Travel** |
-| `decided_by` | The first criterion, in the order of CLAUDE.md section 5, on which the recommended route differs from **the runner-up** (not from every other route): `severe_miles` \| `high_miles` \| `avg_risk` \| `duration` \| `only_candidate` (only one candidate). The first three are compared unrounded, `duration` in whole minutes. If two routes tie on all four criteria, `duration`. `null` when `route_id` is `null` |
-| `versus_route_id` | The route compared against (the runner-up). `null` when there is only one candidate |
-| `duration_delta_minutes` | The recommended route's travel time minus the compared route's (positive means slower). `null` when `versus_route_id` is `null` |
-| `excluded_route_ids` | Routes excluded because of No Travel |
-| `ranking` | The non-excluded routes, from 1st place down |
+| Field                    | Description                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `route_id`               | The recommended route. **`null` if every route has No Travel**                                                                                                                                                                                                                                                                                                                                                       |
+| `decided_by`             | The first criterion, in the order of CLAUDE.md section 5, on which the recommended route differs from **the runner-up** (not from every other route): `severe_miles` \| `high_miles` \| `avg_risk` \| `duration` \| `only_candidate` (only one candidate). The first three are compared unrounded, `duration` in whole minutes. If two routes tie on all four criteria, `duration`. `null` when `route_id` is `null` |
+| `versus_route_id`        | The route compared against (the runner-up). `null` when there is only one candidate                                                                                                                                                                                                                                                                                                                                  |
+| `duration_delta_minutes` | The recommended route's travel time minus the compared route's (positive means slower). `null` when `versus_route_id` is `null`                                                                                                                                                                                                                                                                                      |
+| `excluded_route_ids`     | Routes excluded because of No Travel                                                                                                                                                                                                                                                                                                                                                                                 |
+| `ranking`                | The non-excluded routes, from 1st place down                                                                                                                                                                                                                                                                                                                                                                         |
 
 Example: if Route B has 60.3 severe miles, the values above are shown in the UI as "Fewer severe miles than Route B (25 vs 60), 20 min slower than Route B." The sentence compares with the runner-up only (it never says "fewest"), and shows as few decimals as tell the two values apart: 24.6 against 25.4 reads "24.6 vs 25.4", not "25 vs 25".
 
@@ -124,7 +149,10 @@ Example: if Route B has 60.3 severe miles, the values above are shown in the UI 
   "start": "2026-11-09T14:00:00Z",
   "hours": 49,
   "spacing_deg": 0.5,
-  "points": [[-87.5, 41.5], [-87.0, 41.5]],
+  "points": [
+    [-87.5, 41.5],
+    [-87.0, 41.5]
+  ],
   "scores": [
     [0.34, 0.0],
     [1.5, 0.82]
@@ -163,7 +191,13 @@ Example: if Route B has 60.3 severe miles, the values above are shown in the UI 
 ### `GET /api/places/reverse?lat=41.8789&lon=-87.6359` response (200)
 
 ```json
-{ "place": { "label": "217 South Wacker Drive, Chicago, IL 60606", "lat": 41.8789, "lon": -87.6359 } }
+{
+  "place": {
+    "label": "217 South Wacker Drive, Chicago, IL 60606",
+    "lat": 41.8789,
+    "lon": -87.6359
+  }
+}
 ```
 
 - The address within 1 km of the position (TomTom reverse geocoding). `lat` / `lon` are the position that was asked for (5 decimals), not the address's own, so the route starts where the user is. Cached 24 hours per position rounded to 4 decimals (about 10 m).
@@ -174,21 +208,23 @@ Example: if Route B has 60.3 severe miles, the values above are shown in the UI 
 All errors share one format, and **every answer of the API is JSON**: an unknown path, a wrong method, a body that cannot be read and a failure nobody foresaw all answer in this shape, never with an HTML page. (With `DJANGO_DEBUG=1`, as in local development, an unknown path outside the API views shows Django's own debug page.)
 
 ```json
-{ "error": { "code": "GEOCODE_NOT_FOUND", "message": "...", "field": "origin" } }
+{
+  "error": { "code": "GEOCODE_NOT_FOUND", "message": "...", "field": "origin" }
+}
 ```
 
-| HTTP | `code` | Situation | Extra field |
-|---|---|---|---|
-| 400 | `INVALID_INPUT` | Missing field, wrong format, a disallowed `interval_miles`, a number that is not finite (a 400-digit integer included), control characters in a text, a chosen place outside the United States, origin and destination being the same place, or a body that is not a JSON object, is not valid JSON, is nested too deeply or is too large. Also used for a wrong HTTP method (405) or media type (415) | `field` (omitted when it concerns the whole body) |
-| 400 | `DEPARTURE_IN_PAST` | The departure time is in the past | `field` (`departure`) |
-| 404 | `NOT_FOUND` | There is nothing at this path | |
-| 422 | `GEOCODE_NOT_FOUND` | The address could not be turned into coordinates; or (`/api/places/reverse`) the position is outside the US or has no address | `field` (`origin`/`destination`; omitted for a position) |
-| 422 | `NO_ROUTE` | TomTom returned no route at all, or an end point is not near a road | |
-| 422 | `FORECAST_OUT_OF_RANGE` | The needed hours run past the end of the forecast | `forecast_end` (ISO, the last hour that has a forecast; omitted when it could not be determined) |
-| 429 | `RATE_LIMITED` | Too many requests from this client address (see below). The message says how long to wait, and the `Retry-After` header carries the same number | `retry_after_seconds` (omitted when unknown) |
-| 500 | `INTERNAL_ERROR` | A failure that is none of the above. The server logs it with its traceback; the message tells the user nothing about the server | |
-| 502 | `ROUTING_UNAVAILABLE` | TomTom error or timeout, or a route from TomTom that is not consistent (for example guidance points that go backwards); such an answer is not cached | |
-| 502 | `WEATHER_UNAVAILABLE` | Open-Meteo error, timeout, or a `null` value | |
+| HTTP | `code`                  | Situation                                                                                                                                                                                                                                                                                                                                                                                              | Extra field                                                                                      |
+| ---- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| 400  | `INVALID_INPUT`         | Missing field, wrong format, a disallowed `interval_miles`, a number that is not finite (a 400-digit integer included), control characters in a text, a chosen place outside the United States, origin and destination being the same place, or a body that is not a JSON object, is not valid JSON, is nested too deeply or is too large. Also used for a wrong HTTP method (405) or media type (415) | `field` (omitted when it concerns the whole body)                                                |
+| 400  | `DEPARTURE_IN_PAST`     | The departure time is in the past                                                                                                                                                                                                                                                                                                                                                                      | `field` (`departure`)                                                                            |
+| 404  | `NOT_FOUND`             | There is nothing at this path                                                                                                                                                                                                                                                                                                                                                                          |                                                                                                  |
+| 422  | `GEOCODE_NOT_FOUND`     | The address could not be turned into coordinates; or (`/api/places/reverse`) the position is outside the US or has no address                                                                                                                                                                                                                                                                          | `field` (`origin`/`destination`; omitted for a position)                                         |
+| 422  | `NO_ROUTE`              | TomTom returned no route at all, or an end point is not near a road                                                                                                                                                                                                                                                                                                                                    |                                                                                                  |
+| 422  | `FORECAST_OUT_OF_RANGE` | The needed hours run past the end of the forecast                                                                                                                                                                                                                                                                                                                                                      | `forecast_end` (ISO, the last hour that has a forecast; omitted when it could not be determined) |
+| 429  | `RATE_LIMITED`          | Too many requests from this client address (see below). The message says how long to wait, and the `Retry-After` header carries the same number                                                                                                                                                                                                                                                        | `retry_after_seconds` (omitted when unknown)                                                     |
+| 500  | `INTERNAL_ERROR`        | A failure that is none of the above. The server logs it with its traceback; the message tells the user nothing about the server                                                                                                                                                                                                                                                                        |                                                                                                  |
+| 502  | `ROUTING_UNAVAILABLE`   | TomTom error or timeout, or a route from TomTom that is not consistent (for example guidance points that go backwards); such an answer is not cached                                                                                                                                                                                                                                                   |                                                                                                  |
+| 502  | `WEATHER_UNAVAILABLE`   | Open-Meteo error, timeout, or a `null` value                                                                                                                                                                                                                                                                                                                                                           |                                                                                                  |
 
 **Request limits.** Every analysis spends free-tier quota that all visitors share (one TomTom routing call, and one Open-Meteo call per checkpoint and per heatmap point), so requests are limited per client address: `/api/analyze` and `/api/heatmap` together **12 a minute and 120 a day** (one analysis on screen is one of each, so 6 analyses a minute and 60 a day), `/api/places` and `/api/places/reverse` together **90 a minute and 1,500 a day**. A request that is refused calls no outside service. The numbers are `RATE_LIMITS` in `backend/config/settings.py`; behind a proxy the client address comes from `X-Forwarded-For`, which needs `DJANGO_NUM_PROXIES` (CLAUDE.md Step 12).
 

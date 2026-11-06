@@ -1,6 +1,6 @@
 # Spotter — Weather-Aware Truck Routing
 
-[한국어](./README.ko.md)
+[KOREAN](./README.ko.md)
 
 A web app (React + Django) that helps a truck driver choose the safest route based on **weather, load weight, and travel time**.
 
@@ -19,11 +19,11 @@ A web app (React + Django) that helps a truck driver choose the safest route bas
 
 ## Risk rules at a glance
 
-| Condition | Low | Moderate | High | Severe | No Travel |
-|---|---|---|---|---|---|
-| Wind | < 25 mph | 25–34 | 35–44 | 45–54 | ≥ 55 mph |
-| Rain | < 0.10 in/hr | 0.10–0.25 | 0.25–0.50 | 0.50–1.00 | > 1.00 |
-| Snow | < 0.5 in/hr | 0.5–1.0 | 1.0–2.0 | 2.0–3.0 | > 3.0 |
+| Condition | Low          | Moderate  | High      | Severe    | No Travel |
+| --------- | ------------ | --------- | --------- | --------- | --------- |
+| Wind      | < 25 mph     | 25–34     | 35–44     | 45–54     | ≥ 55 mph  |
+| Rain      | < 0.10 in/hr | 0.10–0.25 | 0.25–0.50 | 0.50–1.00 | > 1.00    |
+| Snow      | < 0.5 in/hr  | 0.5–1.0   | 1.0–2.0   | 2.0–3.0   | > 3.0     |
 
 Load rules:
 
