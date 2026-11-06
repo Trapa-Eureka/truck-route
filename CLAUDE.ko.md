@@ -232,12 +232,15 @@ Spotter Full Stack Developer 과제(`fs-assessment-spotter.pdf`) — **Weather-A
 
 ### 3단계. 위험 규칙 순수 함수와 단위 테스트
 
-- [ ] 풍속·강우·강설 분류 함수 (3절)
-- [ ] checkpoint 등급 = 세 등급 중 최고 등급
-- [ ] 적재 규칙 상향 (4절)
-- [ ] 테스트: 풍속 경계값 25, 35, 45, 55 mph와 34.5 같은 사이 값
-- [ ] 테스트: 강우 0.10·0.25·0.50·1.00, 강설 0.5·1.0·2.0·3.0
-- [ ] 테스트: 적재 규칙 3종 (30,000 lb, 40,000 lb 정확히인 경우 포함)
+- [x] 풍속·강우·강설 분류 함수 (3절): `backend/trip/risk.py`의 `classify_wind`, `classify_rain`, `classify_snow`
+- [x] checkpoint 등급 = 세 등급 중 최고 등급: `assess_checkpoint()`가 `level_by`, `base_level`, `level`, `load_escalated`(계약의 checkpoint 필드)를 반환
+- [x] 적재 규칙 상향 (4절): `apply_load_rules()`는 등급을 올리기만 한다. `load_escalated`는 최종 등급이 기본 등급보다 높을 때만 true(날씨가 이미 그 등급에 도달했으면 false)
+- [x] 테스트: 풍속 경계값 25, 35, 45, 55 mph와 34.5 같은 사이 값 (`backend/trip/tests/test_risk.py`)
+- [x] 테스트: 강우 0.10·0.25·0.50·1.00, 강설 0.5·1.0·2.0·3.0 (각각 바로 아래 값과 바로 위 값 포함)
+- [x] 테스트: 적재 규칙 3종 (30,000 lb, 40,000 lb 정확히인 경우 포함), 그리고 격자 전수로 "적재 규칙은 등급을 낮추지 않는다", "등급은 세 조건 중 최고"를 확인
+- [x] 테스트가 실수를 잡아내는지 검증 (2026-11-06): `risk.py`를 일부러 틀리게 바꾼 20가지(`>=`/`>` 뒤집기, 임계값 이동, 등급을 낮추는 적재 규칙, 입력 검사 제거 등)를 모두 잡아냈다. 427개 테스트 통과
+- [x] 잘못된 측정값은 0으로 취급하지 않고 `ValueError`를 낸다: `None`, NaN, 무한대, 음수, 불리언, 문자열. 날씨 값이 없다고 해서 구간이 안전해 보이면 안 되므로, 5단계는 누락/`null` 예보 값을 `WEATHER_UNAVAILABLE` 오류로 바꿔야 하며 0을 대신 넘기면 안 된다
+- [x] `.env` 없이도(새로 받은 저장소, CI) 테스트가 돈다: pytest는 `config/settings_test.py`를 쓰고, 이 설정은 `DJANGO_SECRET_KEY`가 없을 때만 임시 값을 채운다. 앱 자체는 여전히 키가 없으면 시작하지 않는다
 
 ### 4단계. 경로 샘플링과 ETA
 
@@ -324,7 +327,7 @@ spotter/
 ├── CLAUDE.md, README.md, .env.example   # 각 문서에 한국어판이 있다: *.ko.md
 ├── docs/api-contract.md        # 백엔드 ↔ 프론트 API 계약 (기준 문서)
 ├── backend/                    # Django + DRF (Python 3.12, uv)
-│   ├── config/                 # settings(.env 로드), urls
+│   ├── config/                 # settings(.env 로드), settings_test(pytest용), urls
 │   └── trip/                   # API 앱: 위험 규칙·추천 등 순수 로직 + 뷰, tests/
 └── frontend/                   # Vite + React + TypeScript + maplibre-gl
     └── src/{components, types}
@@ -333,7 +336,7 @@ spotter/
 | 용도 | 명령 (디렉터리) |
 |---|---|
 | 백엔드 실행 | `uv run python manage.py runserver` (`backend/`, 포트 8000) |
-| 백엔드 테스트 | `uv run pytest` (`backend/`) |
+| 백엔드 테스트 | `uv run pytest` (`backend/`, `.env` 불필요) |
 | 백엔드 점검 | `uv run python manage.py check` (`backend/`) |
 | 프론트 실행 | `npm run dev` (`frontend/`, 포트 5173, `/api`는 8000으로 프록시) |
 | 프론트 점검 | `npm run lint`, `npm run build` (`frontend/`) |

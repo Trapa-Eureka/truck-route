@@ -232,12 +232,15 @@ The order is: lock the logic down with tests first, then attach the screens. Mar
 
 ### Step 3. Risk rule pure functions and unit tests
 
-- [ ] Wind/rain/snow classification functions (section 3)
-- [ ] Checkpoint level = highest of the three levels
-- [ ] Load rule escalation (section 4)
-- [ ] Test: wind boundaries 25, 35, 45, 55 mph and in-between values such as 34.5
-- [ ] Test: rain 0.10, 0.25, 0.50, 1.00 and snow 0.5, 1.0, 2.0, 3.0
-- [ ] Test: the 3 load rules (including exactly 30,000 lb and 40,000 lb)
+- [x] Wind/rain/snow classification functions (section 3): `classify_wind`, `classify_rain`, `classify_snow` in `backend/trip/risk.py`
+- [x] Checkpoint level = highest of the three levels: `assess_checkpoint()` returns `level_by`, `base_level`, `level`, `load_escalated` (the contract's checkpoint fields)
+- [x] Load rule escalation (section 4): `apply_load_rules()` only raises a level. `load_escalated` is true only when the final level is above the base level (false when the weather already reached it)
+- [x] Test: wind boundaries 25, 35, 45, 55 mph and in-between values such as 34.5 (`backend/trip/tests/test_risk.py`)
+- [x] Test: rain 0.10, 0.25, 0.50, 1.00 and snow 0.5, 1.0, 2.0, 3.0, each with the value just below and just above
+- [x] Test: the 3 load rules (including exactly 30,000 lb and 40,000 lb), plus "a load rule never lowers a level" and "level is the highest of the three" over a grid
+- [x] Verified the tests catch mistakes (2026-11-06): 20 deliberate mutations of `risk.py` (flipped `>=`/`>`, shifted thresholds, a load rule that lowers a level, missing input checks ...) were all caught. 427 tests pass
+- [x] Invalid measurements raise `ValueError` instead of being treated as 0: `None`, NaN, infinity, negative, booleans, strings. A missing weather value must never make a stretch look safe, so Step 5 must turn a missing/`null` forecast value into the `WEATHER_UNAVAILABLE` error and never pass 0 in its place
+- [x] Tests run on a fresh checkout and in CI without a `.env`: pytest uses `config/settings_test.py`, which supplies a throwaway `DJANGO_SECRET_KEY` only when none is set. The app itself still refuses to start without one
 
 ### Step 4. Route sampling and ETA
 
@@ -324,7 +327,7 @@ spotter/
 ├── CLAUDE.md, README.md, .env.example   # each doc has a Korean counterpart: *.ko.md
 ├── docs/api-contract.md        # backend ↔ frontend API contract (source of truth)
 ├── backend/                    # Django + DRF (Python 3.12, uv)
-│   ├── config/                 # settings (loads .env), urls
+│   ├── config/                 # settings (loads .env), settings_test (used by pytest), urls
 │   └── trip/                   # API app: pure logic (risk rules, recommendation) + views, tests/
 └── frontend/                   # Vite + React + TypeScript + maplibre-gl
     └── src/{components, types}
@@ -333,7 +336,7 @@ spotter/
 | Purpose | Command (directory) |
 |---|---|
 | Run backend | `uv run python manage.py runserver` (`backend/`, port 8000) |
-| Backend tests | `uv run pytest` (`backend/`) |
+| Backend tests | `uv run pytest` (`backend/`, no `.env` needed) |
 | Backend check | `uv run python manage.py check` (`backend/`) |
 | Run frontend | `npm run dev` (`frontend/`, port 5173, `/api` is proxied to 8000) |
 | Frontend checks | `npm run lint`, `npm run build` (`frontend/`) |
