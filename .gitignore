@@ -1,0 +1,10 @@
+.env
+.DS_Store
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Local reference material (not part of the repository)
+ref/
+fs-assessment-spotter.pdf

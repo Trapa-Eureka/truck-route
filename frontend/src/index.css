@@ -1,0 +1,53 @@
+:root {
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color: #1a2530;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+.app {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  height: 100%;
+}
+
+.panel {
+  padding: 16px;
+  overflow-y: auto;
+  border-right: 1px solid #d9e0e6;
+}
+
+.panel h1 {
+  margin: 0 0 4px;
+  font-size: 20px;
+}
+
+.panel p {
+  margin: 0;
+  color: #5b6b78;
+}
+
+.map-area {
+  position: relative;
+  min-width: 0;
+}
+
+/* maplibre-gl.css sets .maplibregl-map { position: relative }; the extra selector keeps this layout winning. */
+.map-area .map {
+  position: absolute;
+  inset: 0;
+}
+
+.map-missing-key {
+  padding: 24px;
+  color: #8a2b1d;
+}
