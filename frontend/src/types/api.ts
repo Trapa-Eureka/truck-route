@@ -2,9 +2,6 @@
 
 export type RiskLevel = 'low' | 'moderate' | 'high' | 'severe' | 'no_travel'
 
-/** Heatmap levels are integers in the same order as RiskLevel (0 = low ... 4 = no_travel). */
-export type RiskLevelIndex = 0 | 1 | 2 | 3 | 4
-
 export type IntervalMiles = 10 | 25 | 50
 
 /** [lon, lat] (GeoJSON order). */
@@ -107,8 +104,12 @@ export interface HeatmapResponse {
   /** Grid spacing in degrees (0.5, or coarser for very large trips). */
   spacing_deg: number
   points: Coordinate[]
-  /** levels[hour][pointIndex] */
-  levels: RiskLevelIndex[][]
+  /**
+   * scores[hour][pointIndex]: how bad the weather is, from 0 (calm) to 4 (No Travel), with two
+   * decimals. The whole part is the risk level (0 low ... 4 no_travel); the decimals say how far
+   * through the level the weather is, so 5 mph and 20 mph of wind (both Low) differ.
+   */
+  scores: number[][]
 }
 
 export type ApiErrorCode =

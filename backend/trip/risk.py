@@ -182,3 +182,43 @@ def assess_checkpoint(
         level=level,
         load_escalated=level > base_level,
     )
+
+
+# --------------------------------------------------------------------------- continuous score
+
+
+def _progress(value: float, thresholds: _Thresholds) -> float:
+    """Where a measurement sits on the 0 to 4 scale, between the thresholds of one condition.
+
+    0 is calm; each threshold of the table is a whole number (Moderate starts at 1, High at 2,
+    Severe at 3, No Travel at 4); between two thresholds the value is placed in proportion, so
+    rain of 0.175 in/hr (half way from 0.10 to 0.25) is 1.5. At or above the last threshold it is 4.
+    """
+    anchors = (0.0, thresholds.moderate, thresholds.high, thresholds.severe, thresholds.no_travel)
+    for step in range(4):
+        if value < anchors[step + 1]:
+            return step + (value - anchors[step]) / (anchors[step + 1] - anchors[step])
+    return 4.0
+
+
+def risk_score(wind_mph: float, rain_in_hr: float, snow_in_hr: float, level: RiskLevel) -> float:
+    """A number from 0 to 4 for how bad the weather is, for drawing a continuous heatmap.
+
+    The table gives only five levels, so on a calm day almost every place is "Low" and a map of
+    levels cannot show the weather changing. This keeps the information inside a level: the worst
+    of the three conditions, each placed between its thresholds (see ``_progress``).
+
+    It never disagrees with the level: the whole part of the score **is** the final ``level``
+    (load rules included), and No Travel is exactly 4. A load rule that raises the level lifts the
+    score to the start of that level. The score is only for the picture; the level and its rules
+    are what the app decides with.
+    """
+    if level == RiskLevel.NO_TRAVEL:
+        return 4.0
+    raw = max(
+        _progress(_require_measurement(wind_mph, "wind_mph"), WIND_THRESHOLDS),
+        _progress(_require_measurement(rain_in_hr, "rain_in_hr"), RAIN_THRESHOLDS),
+        _progress(_require_measurement(snow_in_hr, "snow_in_hr"), SNOW_THRESHOLDS),
+    )
+    # Stay inside the level's own band: [level, level + 0.99].
+    return min(max(raw, float(level)), level + 0.99)

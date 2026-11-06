@@ -1,13 +1,11 @@
 import { lazy, memo, Suspense, useCallback, useRef, useState } from 'react'
 import AnalysisForm, { type FieldErrors } from './components/AnalysisForm'
-import CheckpointTimeline from './components/CheckpointTimeline'
 import ForecastSlider from './components/ForecastSlider'
 import Legend from './components/Legend'
-import NoTravelBanner from './components/NoTravelBanner'
-import RouteCard from './components/RouteCard'
+import Results from './components/Results'
+import TripBar from './components/TripBar'
 import { analyze, ApiRequestError, fetchHeatmap } from './lib/api'
 import { hourTime, truckDescription, truckPosition, type HeatmapStatus } from './lib/heatmap'
-import { fewerRoutesNotice, recommendationReason } from './lib/reason'
 import type { CheckpointFocus } from './map/focus'
 import type { AnalyzeRequest, AnalyzeResponse, Route } from './types/api'
 
@@ -15,11 +13,8 @@ import type { AnalyzeRequest, AnalyzeResponse, Route } from './types/api'
 // map chunk downloads while the person types.
 const MapView = lazy(() => import('./components/MapView'))
 
-// The slider changes `hour` many times a second. These children do not depend on it, so they are
-// kept from re-rendering (the checkpoint list can have over a hundred items).
-const Timeline = memo(CheckpointTimeline)
-const Card = memo(RouteCard)
-const Banner = memo(NoTravelBanner)
+// The slider changes `hour` many times a second. The form and the results do not depend on it, so
+// they are kept from re-rendering (the checkpoint list can have over a hundred items).
 const Form = memo(AnalysisForm)
 
 // A stable empty list, so the map does not see a "new" routes value on every render.
@@ -103,19 +98,28 @@ export default function App() {
   const heatmapData = heatmap.kind === 'done' ? heatmap.data : null
   const truck =
     heatmapData && selectedRoute ? truckPosition(selectedRoute, hourTime(heatmapData.start, hour)) : null
-  const notice = data ? fewerRoutesNotice(data.routes.length) : null
 
   return (
     <div className="app">
       <aside className="panel">
         <header className="panel-header">
-          <h1>Spotter</h1>
-          <p>Weather-aware truck routing</p>
+          <span className="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 32 32" width="34" height="34">
+              <rect width="32" height="32" rx="10" fill="currentColor" />
+              <path d="M7 22c4.5 0 4-12 9-12s4.500 12 9 12" fill="none" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" />
+              <circle cx="7" cy="22" r="2.4" fill="#fff" />
+              <circle cx="25" cy="22" r="2.4" fill="#fff" />
+            </svg>
+          </span>
+          <div>
+            <h1>Spotter</h1>
+            <p>Weather-aware truck routing</p>
+          </div>
         </header>
 
         <Form loading={status.kind === 'loading'} serverErrors={fieldErrors} onSubmit={handleSubmit} />
 
-        <section className="results" aria-live="polite">
+        <section className="results-area" aria-live="polite">
           {status.kind === 'loading' && (
             <p className="loading">
               <span className="spinner" aria-hidden="true" />
@@ -130,45 +134,18 @@ export default function App() {
           )}
 
           {data && (
-            <>
-              <p className="trip">
-                {data.origin.label} <span aria-hidden="true">→</span>
-                <span className="sr-only"> to </span> {data.destination.label}
-              </p>
-
-              <Banner routes={data.routes} />
-
-              {notice && <p className="notice">{notice}</p>}
-
-              {recommendedId && (
-                <p className="recommendation">
-                  <strong>Recommended: Route {recommendedId}.</strong>{' '}
-                  {recommendationReason(data.recommendation, data.routes)}
-                </p>
-              )}
-
-              <ul className="route-list">
-                {data.routes.map((route) => (
-                  <li key={route.id}>
-                    <Card
-                      route={route}
-                      selected={route.id === selectedId}
-                      recommended={route.id === recommendedId}
-                      onSelect={selectRoute}
-                    />
-                  </li>
-                ))}
-              </ul>
-
-              {selectedRoute && (
-                <Timeline route={selectedRoute} activeIndex={focus?.index ?? null} onSelect={focusCheckpoint} />
-              )}
-            </>
+            <Results
+              data={data}
+              selectedId={selectedId}
+              activeCheckpoint={focus?.index ?? null}
+              onSelectRoute={selectRoute}
+              onSelectCheckpoint={focusCheckpoint}
+            />
           )}
         </section>
 
         <footer className="credits">
-          Weather data by{' '}
+          Weather forecast by{' '}
           <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">
             Open-Meteo.com
           </a>{' '}
@@ -176,7 +153,7 @@ export default function App() {
           <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">
             CC BY 4.0
           </a>
-          ). Map © TomTom.
+          ), hourly model data, cached up to an hour. Map © TomTom.
         </footer>
       </aside>
 
@@ -195,6 +172,7 @@ export default function App() {
             onSelectCheckpoint={selectCheckpointOnMap}
           />
         </Suspense>
+        <TripBar route={selectedRoute} recommended={selectedRoute?.id === recommendedId} />
         <ForecastSlider
           status={heatmap}
           hour={hour}

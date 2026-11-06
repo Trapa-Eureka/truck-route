@@ -1,4 +1,6 @@
+import type { CSSProperties } from 'react'
 import { forecastHourLabel, type HeatmapStatus } from '../lib/heatmap'
+import Icon from './Icon'
 
 interface Props {
   status: HeatmapStatus
@@ -8,7 +10,7 @@ interface Props {
   truckText: string | null
 }
 
-/** The 0 to 48 hour forecast slider, over the top of the map. */
+/** The 0 to 48 hour forecast slider, over the bottom of the map. */
 export default function ForecastSlider({ status, hour, onHourChange, truckText }: Props) {
   if (status.kind === 'idle') return null
 
@@ -25,7 +27,10 @@ export default function ForecastSlider({ status, hour, onHourChange, truckText }
       {status.kind === 'done' && (
         <>
           <label className="forecast-label" htmlFor="forecast-hour">
-            <span>Forecast hour</span>
+            <span className="forecast-title">
+              <Icon name="clock" size={16} />
+              Forecast hour
+            </span>
             <output htmlFor="forecast-hour">{forecastHourLabel(status.data.start, hour)}</output>
           </label>
           <input
@@ -35,6 +40,7 @@ export default function ForecastSlider({ status, hour, onHourChange, truckText }
             max={status.data.hours - 1}
             step={1}
             value={hour}
+            style={{ '--fill': `${(hour / (status.data.hours - 1)) * 100}%` } as CSSProperties}
             onChange={(event) => onHourChange(Number(event.target.value))}
             aria-valuetext={forecastHourLabel(status.data.start, hour)}
           />
@@ -43,7 +49,12 @@ export default function ForecastSlider({ status, hour, onHourChange, truckText }
             <span>+24 h</span>
             <span>+48 h</span>
           </div>
-          {truckText && <p className="forecast-truck">{truckText}</p>}
+          {truckText && (
+            <p className="forecast-truck">
+              <Icon name="truck" size={16} />
+              {truckText}
+            </p>
+          )}
         </>
       )}
     </section>

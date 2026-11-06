@@ -3,13 +3,13 @@ import type { HeatmapResponse } from '../types/api'
 import { forecastHourLabel, heatFeatures, hourProperty, hourTime, pointAlong, truckDescription, truckPosition } from './heatmap'
 import { eastwardRoute } from './testData'
 
-function heatmap(points: [number, number][], levelAt: (hour: number, i: number) => 0 | 1 | 2 | 3 | 4): HeatmapResponse {
+function heatmap(points: [number, number][], scoreAt: (hour: number, i: number) => number): HeatmapResponse {
   return {
     start: '2026-11-09T14:00:00Z',
     hours: 49,
     spacing_deg: 0.5,
     points,
-    levels: Array.from({ length: 49 }, (_, hour) => points.map((_, i) => levelAt(hour, i))),
+    scores: Array.from({ length: 49 }, (_, hour) => points.map((_, i) => scoreAt(hour, i))),
   }
 }
 
@@ -20,7 +20,7 @@ describe('heatFeatures', () => {
       [-89.5, 40],
       [-89, 40.5],
     ],
-    (hour, i) => ((hour + i) % 5) as 0 | 1 | 2 | 3 | 4,
+    (hour, i) => ((hour + i) % 5) + 0.25,
   )
 
   it('has a point per grid point at its (lon, lat)', () => {
@@ -28,12 +28,12 @@ describe('heatFeatures', () => {
     expect(features.map((f) => f.geometry.coordinates)).toEqual(data.points)
   })
 
-  it('carries every hour as h0..h48, each equal to levels[hour][i]', () => {
+  it('carries every hour as h0..h48, each equal to scores[hour][i]', () => {
     const { features } = heatFeatures(data)
     features.forEach((feature, i) => {
       expect(Object.keys(feature.properties)).toHaveLength(49)
       for (let hour = 0; hour < 49; hour++) {
-        expect(feature.properties[hourProperty(hour)]).toBe(data.levels[hour][i])
+        expect(feature.properties[hourProperty(hour)]).toBe(data.scores[hour][i])
       }
     })
   })
@@ -41,6 +41,12 @@ describe('heatFeatures', () => {
   it('names the properties h0 .. h48', () => {
     expect(hourProperty(0)).toBe('h0')
     expect(hourProperty(48)).toBe('h48')
+  })
+
+  it('keeps the decimals of a score (they carry the weather within a level)', () => {
+    const { features } = heatFeatures(heatmap([[-90, 40]], () => 0.8))
+    expect(features[0].properties.h0).toBe(0.8)
+    expect(features[0].properties.h48).toBe(0.8)
   })
 
   it('is empty without points', () => {

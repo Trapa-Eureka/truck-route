@@ -122,16 +122,16 @@ Example: the values above are shown in the UI as "25 severe miles, 20 min slower
   "hours": 49,
   "spacing_deg": 0.5,
   "points": [[-87.5, 41.5], [-87.0, 41.5]],
-  "levels": [
-    [0, 0],
-    [1, 0]
+  "scores": [
+    [0.34, 0.0],
+    [1.5, 0.82]
   ]
 }
 ```
 
-- `start` is slider hour 0 = **the departure time rounded to the nearest hour** (a time exactly on :30 goes to the later hour), the same rule checkpoints use, so a checkpoint and the heatmap show the same forecast (CLAUDE.md sections 2 and 7). `hours` is `49` (hours 0 to 48): `levels[h]` is the forecast `h` hours after `start`.
+- `start` is slider hour 0 = **the departure time rounded to the nearest hour** (a time exactly on :30 goes to the later hour), the same rule checkpoints use, so a checkpoint and the heatmap show the same forecast (CLAUDE.md sections 2 and 7). `hours` is `49` (hours 0 to 48): `scores[h]` is the forecast `h` hours after `start`.
 - `points` are grid points `[lon, lat]` on exact multiples of `spacing_deg`, within 40 miles of any of the routes (CLAUDE.md section 7). `spacing_deg` is `0.5` (about 34 miles); a trip that would need more than 600 points gets `1.0` or `2.0` instead, so one heatmap never costs more than 600 weather calls.
-- `levels[h][i]` is the level `0` to `4` at point `i` at hour `h`. It is computed with **the same rules as checkpoints (including the load rules)**, so route colors and heatmap colors match.
+- `scores[h][i]` is how bad the weather is at point `i` at hour `h`, from `0` (calm) to `4` (No Travel), with 2 decimals. **The whole part is the risk level** by the same rules as checkpoints (load rules included), so route colors and heatmap colors always agree: score 2.5 is High, 3.0 is Severe, 4 is No Travel. The decimals are how far through the level the weather is. Why not just the level: on a calm day almost every point is Low, and a map of five levels cannot show the weather changing. The score places the worst of wind, rain and snow between its table thresholds (wind 12.5 mph is 0.5, 25 mph is 1.0, 30 mph is 1.5, 35 mph is 2.0, and so on); a load rule that raises the level lifts the score to the start of that level. The score is only for drawing; the level and its rules decide everything else (CLAUDE.md sections 3 and 4).
 - Points and hours that contain `null` are not produced; they are treated as errors (CLAUDE.md section 7).
 
 ## Errors (see CLAUDE.md section 7)

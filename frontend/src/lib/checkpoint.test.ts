@@ -37,9 +37,9 @@ describe('weatherRows and weatherLine', () => {
 
   it('gives each condition its value and level', () => {
     expect(weatherRows(cp)).toEqual([
-      { label: 'Wind', value: '5.9 mph', level: 'low' },
-      { label: 'Rain', value: '1.02 in/hr', level: 'no_travel' },
-      { label: 'Snow', value: '0 in/hr', level: 'low' },
+      { label: 'Wind', icon: 'wind', amount: '5.9', unit: 'mph', value: '5.9 mph', level: 'low' },
+      { label: 'Rain', icon: 'rain', amount: '1.02', unit: 'in/hr', value: '1.02 in/hr', level: 'no_travel' },
+      { label: 'Snow', icon: 'snow', amount: '0', unit: 'in/hr', value: '0 in/hr', level: 'low' },
     ])
   })
 

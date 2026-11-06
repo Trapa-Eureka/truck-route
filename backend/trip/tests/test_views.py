@@ -216,8 +216,8 @@ class TestHeatmapView:
         response = client.post(self.URL, payload(), format="json")
         assert response.status_code == 200
         body = response.json()
-        assert body["hours"] == 49 and len(body["levels"]) == 49
-        assert len(body["levels"][0]) == len(body["points"])
+        assert body["hours"] == 49 and len(body["scores"]) == 49
+        assert len(body["scores"][0]) == len(body["points"])
 
     def test_the_same_body_as_analyze(self, client, services):
         data = payload()

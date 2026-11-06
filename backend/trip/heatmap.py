@@ -4,9 +4,11 @@ Slider hour ``h`` is the forecast ``h`` hours after the departure hour. The depa
 departure rounded to the nearest hour, the same rule checkpoints use, so a checkpoint and the
 heatmap show the same forecast (CLAUDE.md sections 2 and 7).
 
-The levels use the same rules as checkpoints, load rules included, so the colors on the route and
-on the heatmap always agree. All 49 hours come back in one response: moving the slider in the
-browser never calls the API again.
+Each point gets a **score** from 0 to 4 (``risk.risk_score``): the weather's strength, continuous,
+so the map can show 5 mph wind and 20 mph wind as different even though both are "Low". The whole
+part of the score is the risk level by the same rules as checkpoints, load rules included, so the
+colors on the route and on the heatmap always agree. All 49 hours come back in one response:
+moving the slider in the browser never calls the API again.
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ from typing import Any
 
 from .analysis import RoutingService, WeatherService, resolve_trip
 from .grid import corridor_grid
-from .risk import assess_checkpoint
+from .risk import assess_checkpoint, risk_score
 from .validation import AnalyzeRequest
 from .weather import nearest_hour
 from .weather_client import WeatherQuery
@@ -47,18 +49,21 @@ def heatmap(
     ]
     samples = weather.get_weather_at(queries)
 
-    levels = [[0] * len(points) for _ in range(HOURS)]
+    scores = [[0.0] * len(points) for _ in range(HOURS)]
     for position, sample in enumerate(samples):
         point, hour = divmod(position, HOURS)
         risk = assess_checkpoint(
             sample.wind_mph, sample.rain_in_hr, sample.snow_in_hr, request.load_weight_lb
         )
-        levels[hour][point] = int(risk.level)
+        score = risk_score(sample.wind_mph, sample.rain_in_hr, sample.snow_in_hr, risk.level)
+        # 2 decimals are plenty for a picture. Rounding cannot change the level: a score is at most
+        # (level + 0.99) and at least the level itself.
+        scores[hour][point] = round(score, 2)
 
     return {
         "start": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "hours": HOURS,
         "spacing_deg": spacing,
         "points": [[lon, lat] for lat, lon in points],
-        "levels": levels,
+        "scores": scores,
     }

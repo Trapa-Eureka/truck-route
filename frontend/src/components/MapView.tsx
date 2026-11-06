@@ -10,14 +10,20 @@ import {
 } from 'maplibre-gl'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import gsap from 'gsap'
 import { useEffect, useRef, useState } from 'react'
 import { heatFeatures } from '../lib/heatmap'
-import { checkpointDots, placeDots, riskSegments, routeLines } from '../map/geo'
+import { checkpointDots, placeDots, riskSegments, routeLines, selectedLine } from '../map/geo'
 import { heatLayerId } from '../map/heat'
-import { addHeatLayers, addRouteLayers, LAYER, removeHeatLayers, SOURCE } from '../map/layers'
+import { LAYER, SOURCE } from '../map/ids'
+import { addHeatLayers, addRouteLayers, removeHeatLayers } from '../map/layers'
 import { mapErrorMessage } from '../map/errors'
 import type { CheckpointFocus } from '../map/focus'
+import { addWeatherMarkers } from '../map/markers'
+import { mutedStyle } from '../map/mutedStyle'
+import { createPin } from '../map/pins'
 import { checkpointPopupContent } from '../map/popup'
+import { createReveal, prefersReducedMotion, type Reveal } from '../map/reveal'
 import type { Coordinate, HeatmapResponse, ResolvedPlace, Route } from '../types/api'
 
 // MapLibre finds its worker with new URL('./maplibre-gl-worker.mjs', import.meta.url). In a
@@ -70,6 +76,9 @@ export default function MapView({
   const mapRef = useRef<MapLibreMap | null>(null)
   const popupRef = useRef<{ popup: Popup; onClose: () => void } | null>(null)
   const truckRef = useRef<Marker | null>(null)
+  const revealRef = useRef<Reveal | null>(null)
+  // What the route animation last drew: it replays for a new analysis and when another route is chosen.
+  const revealed = useRef<{ routes: readonly Route[] | null; id: string | null }>({ routes: null, id: null })
   // How many heat layers exist, and which hour's is showing.
   const heatLayers = useRef({ count: 0, shown: null as number | null })
   const [ready, setReady] = useState(false)
@@ -90,6 +99,8 @@ export default function MapView({
     const map = new MapLibreMap({
       container: containerRef.current,
       style: STYLE_URL,
+      // A quiet gray base map, so the route and the weather stand out (mutedStyle.ts).
+      transformStyle: (_previous, next) => mutedStyle(next),
       center: INITIAL_CENTER,
       zoom: INITIAL_ZOOM,
     })
@@ -97,15 +108,23 @@ export default function MapView({
     mapRef.current = map
 
     // A refused key or a style that never loads leaves a blank map: say so, the results still work.
-    let styleLoaded = false
+    const state = { styleLoaded: false, cancelled: false }
     map.on('error', (event) => {
-      const message = mapErrorMessage(event.error, styleLoaded)
+      const message = mapErrorMessage(event.error, state.styleLoaded)
       if (message) setProblem(message)
     })
 
-    map.on('load', () => {
-      styleLoaded = true
+    map.on('load', async () => {
+      state.styleLoaded = true
+      // The weather markers are images; the layer that shows them needs them in the map first.
+      try {
+        await addWeatherMarkers(map)
+      } catch {
+        // Without them the route still works; only the weather pictures are missing.
+      }
+      if (state.cancelled) return
       addRouteLayers(map)
+      revealRef.current = createReveal(map)
 
       map.on('click', LAYER.checkpoints, (event: MapMouseEvent) => {
         const index = map.queryRenderedFeatures(event.point, { layers: [LAYER.checkpoints] })[0]?.properties?.index
@@ -127,6 +146,10 @@ export default function MapView({
     })
 
     return () => {
+      state.cancelled = true
+      revealRef.current?.stop()
+      revealRef.current = null
+      revealed.current = { routes: null, id: null }
       mapRef.current = null
       popupRef.current = null
       truckRef.current = null
@@ -141,13 +164,58 @@ export default function MapView({
     if (!ready || !map) return
     setData(map, SOURCE.routes, routeLines(routes, selectedId))
     setData(map, SOURCE.risk, riskSegments(selectedRoute))
+    setData(map, SOURCE.draw, selectedLine(selectedRoute))
     setData(map, SOURCE.checkpoints, checkpointDots(selectedRoute))
   }, [ready, routes, selectedId, selectedRoute])
 
+  // Draw the route (again) when a new analysis arrives or another route is chosen. It runs after the
+  // effect above, so the new data is already in place when the old drawing is hidden.
+  useEffect(() => {
+    const reveal = revealRef.current
+    if (!ready || !reveal) return
+    if (routes.length === 0 || !selectedRoute) {
+      reveal.stop()
+      revealed.current = { routes: null, id: null }
+      return
+    }
+    const isNewAnalysis = revealed.current.routes !== routes
+    if (!isNewAnalysis && revealed.current.id === selectedId) return
+    revealed.current = { routes, id: selectedId }
+    if (prefersReducedMotion()) reveal.showAll()
+    // A new analysis waits for the map to finish zooming to the routes, and takes longer.
+    else reveal.play(isNewAnalysis ? { duration: 1.6, delay: 0.7 } : { duration: 0.8 })
+  }, [ready, routes, selectedId, selectedRoute])
+
+  // The origin and destination: a dot on the map and a label card above it that pops in.
   useEffect(() => {
     const map = mapRef.current
     if (!ready || !map) return
     setData(map, SOURCE.places, placeDots(origin, destination))
+
+    const pins = (
+      [
+        ['origin', origin],
+        ['destination', destination],
+      ] as const
+    ).flatMap(([kind, place]) => {
+      if (!place) return []
+      const { element, card } = createPin(kind, place.label)
+      const marker = new Marker({ element, anchor: 'bottom', offset: [0, -12] }).setLngLat([place.lon, place.lat]).addTo(map)
+      if (!prefersReducedMotion()) {
+        gsap.fromTo(
+          card,
+          { opacity: 0, y: -14, scale: 0.85 },
+          { opacity: 1, y: 0, scale: 1, duration: 0.55, ease: 'back.out(1.8)', delay: 0.7 },
+        )
+      }
+      return [{ marker, card }]
+    })
+    return () => {
+      for (const { marker, card } of pins) {
+        gsap.killTweensOf(card)
+        marker.remove()
+      }
+    }
   }, [ready, origin, destination])
 
   // Load the whole 48-hour grid into the map once, with one layer per hour.
@@ -226,7 +294,7 @@ export default function MapView({
 
     const isLast = checkpoint === selectedRoute.checkpoints[selectedRoute.checkpoints.length - 1]
     const onClose = () => callbacks.current.onSelectCheckpoint(null)
-    const popup = new Popup({ closeOnClick: false, maxWidth: '300px', offset: 14 })
+    const popup = new Popup({ closeOnClick: false, maxWidth: '380px', offset: 24 })
       .setLngLat([checkpoint.lon, checkpoint.lat])
       .setDOMContent(checkpointPopupContent(checkpoint, isLast))
       .addTo(map)

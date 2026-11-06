@@ -1,42 +1,105 @@
 import { describe, expect, it } from 'vitest'
-import { HEAT_OPACITY, RISK_COLORS, RISK_LEVELS } from '../lib/risk'
-import { HEAT_RADIUS_SHARE, heatColor, heatLayerId, heatRadius } from './heat'
+import { RISK_COLORS, RISK_LEVELS } from '../lib/risk'
+import { HEAT_RADIUS_SHARE, HEAT_STOPS, heatColor, heatLayerId, heatRadius, heatRampCss } from './heat'
 
-describe('heatColor', () => {
-  const rgbaOf = (hex: string, alpha: number) => {
-    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`
-  }
-
-  it('reads the level from the property of that hour', () => {
-    expect(heatColor(7).slice(0, 2)).toEqual(['match', ['get', 'h7']])
-    expect(heatColor(0)[1]).toEqual(['get', 'h0'])
-    expect(heatColor(48)[1]).toEqual(['get', 'h48'])
+describe('HEAT_STOPS', () => {
+  it('start at 0 and end at 4, in increasing order', () => {
+    expect(HEAT_STOPS[0].score).toBe(0)
+    expect(HEAT_STOPS[HEAT_STOPS.length - 1].score).toBe(4)
+    const scores = HEAT_STOPS.map((s) => s.score)
+    expect([...scores].sort((a, b) => a - b)).toEqual(scores)
+    expect(new Set(scores).size).toBe(scores.length)
   })
 
-  it('maps level 0 to 4 to the palette colour with that level\'s strength as alpha', () => {
-    const expression = heatColor(3)
+  it('start with blue for the calmest visible weather, then turn green (not green from the start)', () => {
+    const [, calm, , green] = HEAT_STOPS
+    expect(calm.rgb[2]).toBeGreaterThan(calm.rgb[1]) // blue is the strongest channel
+    expect(green.rgb[1]).toBeGreaterThan(green.rgb[2]) // green is
+    expect(green.rgb[1]).toBeGreaterThan(green.rgb[0] + 40) // clearly green, not teal or gray
+    expect(calm.rgb).not.toEqual(green.rgb)
+  })
+
+  it('give the Low range (a calm day) at least five visible steps', () => {
+    expect(HEAT_STOPS.filter((s) => s.score > 0 && s.score < 1).length).toBeGreaterThanOrEqual(5)
+  })
+
+  it('are visible on a calm day: Low weather above a light breeze is at least 35% opaque', () => {
+    for (const stop of HEAT_STOPS.filter((s) => s.score >= 0.15)) expect(stop.alpha).toBeGreaterThanOrEqual(0.35)
+  })
+
+  it('show nothing for calm weather', () => {
+    expect(HEAT_STOPS[0].alpha).toBe(0)
+  })
+
+  it('get stronger as the weather gets worse', () => {
+    const alphas = HEAT_STOPS.map((s) => s.alpha)
+    expect([...alphas].sort((a, b) => a - b)).toEqual(alphas)
+    expect(Math.max(...alphas)).toBeLessThanOrEqual(0.85)
+  })
+
+  it('reach each level color exactly where the level starts (1 to 4), the same colors as the route', () => {
+    const hexOf = ([r, g, b]: number[]) => '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')
     RISK_LEVELS.forEach((level, index) => {
-      expect(expression[2 + index * 2]).toBe(index)
-      expect(expression[3 + index * 2]).toBe(rgbaOf(RISK_COLORS[level], HEAT_OPACITY[index]))
+      if (index === 0) return
+      const stop = HEAT_STOPS.find((s) => s.score === index)!
+      expect(hexOf(stop.rgb)).toBe(RISK_COLORS[level])
     })
   })
 
-  it('has a fallback (Low) for an unexpected value', () => {
+  it('show different colors for different Low weather, not just a different strength', () => {
+    const colorAt = (score: number) => {
+      const stops = HEAT_STOPS
+      const i = stops.findIndex((s) => s.score >= score)
+      const [a, b] = [stops[Math.max(0, i - 1)], stops[i]]
+      const t = a.score === b.score ? 0 : (score - a.score) / (b.score - a.score)
+      return a.rgb.map((v, k) => v + (b.rgb[k] - v) * t)
+    }
+    const breeze = colorAt(0.3), brisk = colorAt(0.9)
+    expect(breeze).not.toEqual(brisk)
+    expect(Math.abs(breeze[0] - brisk[0]) + Math.abs(breeze[1] - brisk[1]) + Math.abs(breeze[2] - brisk[2])).toBeGreaterThan(60)
+  })
+})
+
+describe('heatColor', () => {
+  it('is an interpolation over the score of that hour', () => {
+    expect(heatColor(7).slice(0, 3)).toEqual(['interpolate', ['linear'], ['get', 'h7']])
+    expect((heatColor(0)[2] as unknown[])[1]).toBe('h0')
+    expect((heatColor(48)[2] as unknown[])[1]).toBe('h48')
+  })
+
+  it('has one stop per HEAT_STOPS entry, with the score first and then its color', () => {
     const expression = heatColor(3)
-    expect(expression[expression.length - 1]).toBe(rgbaOf(RISK_COLORS.low, HEAT_OPACITY[0]))
+    HEAT_STOPS.forEach((stop, i) => {
+      expect(expression[3 + i * 2]).toBe(stop.score)
+      expect(expression[4 + i * 2]).toMatch(/^rgba\(\d+, \d+, \d+, [\d.]+\)$/)
+    })
+    expect(expression).toHaveLength(3 + HEAT_STOPS.length * 2)
   })
 
-  it('is stronger for higher levels', () => {
-    expect([...HEAT_OPACITY]).toEqual([...HEAT_OPACITY].sort((a, b) => a - b))
-    expect(new Set(HEAT_OPACITY).size).toBe(5)
-    expect(HEAT_OPACITY[0]).toBeGreaterThan(0)
-    expect(Math.max(...HEAT_OPACITY)).toBeLessThanOrEqual(0.85)
+  it('writes the color and the alpha of each stop', () => {
+    expect(heatColor(0)[4]).toBe('rgba(111, 168, 220, 0)') // calm: transparent
+    expect(heatColor(0)[heatColor(0).length - 1]).toBe('rgba(75, 29, 92, 0.76)') // No Travel
+  })
+})
+
+describe('heatRampCss', () => {
+  it('is a left-to-right gradient with every stop at its place on the 0 to 4 scale', () => {
+    const css = heatRampCss()
+    expect(css).toMatch(/^linear-gradient\(to right, /)
+    expect(css).toContain(' 0%')
+    expect(css).toContain(' 25%') // score 1: where Moderate starts
+    expect(css).toContain(' 50%')
+    expect(css).toContain(' 75%')
+    expect(css).toContain(' 100%')
   })
 
-  it('parses each hex colour into its own red, green and blue', () => {
-    expect(heatColor(0)[3]).toBe('rgba(46, 158, 95, 0.16)') // #2e9e5f, Low
-    expect(heatColor(0)[11]).toBe('rgba(75, 29, 92, 0.66)') // #4b1d5c, No Travel
+  it('is stronger with a larger strength (the legend is more saturated than the map)', () => {
+    expect(heatRampCss(2)).toContain('rgba(75, 29, 92, 1)')
+    expect(heatRampCss(1)).toContain('rgba(75, 29, 92, 0.76)')
+  })
+
+  it('never goes above full opacity', () => {
+    expect(heatRampCss(10)).not.toMatch(/, (1\.\d+|[2-9])\)/)
   })
 })
 

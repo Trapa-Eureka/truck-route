@@ -33,10 +33,10 @@ Load rules:
 
 ## Screen layout
 
-- **Map**: shows the 3 routes together. The selected route is bold and the others gray. The route line changes color by risk level along its length, and the legend is always visible.
+- **Map**: a quiet gray base map that shows the 3 routes together. The selected route is drawn from the origin to the destination (a short animation), its line changes color by risk level along its length, and the other routes are plain gray lines. A weather picture (clear, light rain, rain, snow, wind) in a circle of the risk color marks each checkpoint, and the legend is always visible.
 - **Route cards**: each route shows only 4 numbers: `Severe mi`, `High mi`, `Avg risk`, `Duration`.
 - **Recommendation reason**: the recommended route shows its reason in one line (for example "0 severe miles, 20 min slower than Route B").
-- **Checkpoints**: each checkpoint shows its estimated arrival time (ETA), the weather at that time, and its risk level.
+- **Checkpoints**: each checkpoint shows its estimated arrival time (ETA), the weather at that time, and its risk level. Click one on the map or in the list: wind, rain and snow appear as three picture tiles with their values and levels.
 - **No Travel warning**: if a route has a No Travel stretch, a large warning banner is shown.
 - **Forecast slider**: moving the 0–48 hour slider changes the weather heatmap and the truck's expected position on the map together. Hour 0 is the departure hour (the departure rounded to the nearest hour) and the date and time of the chosen hour are shown next to the slider. The whole 48 hours are loaded once, so moving the slider never calls the server.
 
@@ -81,7 +81,7 @@ Where the assignment document is silent, these choices were made.
 ## Tech stack
 
 - Frontend: React + TypeScript (Vite) + MapLibre (WebGL map)
-- Backend: Django + Django REST Framework
+- Backend: Django + Django REST Framework (no Django admin: the PDF asks for none and the backend stores no data)
 - External APIs (third-party)
   - Routing and geocoding: [TomTom](https://developer.tomtom.com/) Routing API (truck mode) and Geocoding API
   - Weather forecast: [Open-Meteo](https://open-meteo.com/) (CC BY 4.0)

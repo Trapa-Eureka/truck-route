@@ -13,6 +13,13 @@ export function formatAmount(value: number): string {
 
 export interface WeatherRow {
   label: 'Wind' | 'Rain' | 'Snow'
+  /** The picture for this condition. */
+  icon: 'wind' | 'rain' | 'snow'
+  /** "5.9", "0.016": the number alone. */
+  amount: string
+  /** "mph" or "in/hr". */
+  unit: string
+  /** "5.9 mph": number and unit together. */
   value: string
   /** The level this condition alone would give (before the load rules). */
   level: RiskLevel
@@ -20,10 +27,17 @@ export interface WeatherRow {
 
 export function weatherRows(checkpoint: Checkpoint): WeatherRow[] {
   const { weather, level_by } = checkpoint
+  const row = (
+    label: WeatherRow['label'],
+    icon: WeatherRow['icon'],
+    amount: string,
+    unit: string,
+    level: RiskLevel,
+  ): WeatherRow => ({ label, icon, amount, unit, value: `${amount} ${unit}`, level })
   return [
-    { label: 'Wind', value: `${weather.wind_mph.toFixed(1)} mph`, level: level_by.wind },
-    { label: 'Rain', value: `${formatAmount(weather.rain_in_hr)} in/hr`, level: level_by.rain },
-    { label: 'Snow', value: `${formatAmount(weather.snow_in_hr)} in/hr`, level: level_by.snow },
+    row('Wind', 'wind', weather.wind_mph.toFixed(1), 'mph', level_by.wind),
+    row('Rain', 'rain', formatAmount(weather.rain_in_hr), 'in/hr', level_by.rain),
+    row('Snow', 'snow', formatAmount(weather.snow_in_hr), 'in/hr', level_by.snow),
   ]
 }
 

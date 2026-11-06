@@ -1,6 +1,8 @@
-import { useState, type FormEvent } from 'react'
+import { useState, type FormEvent, type ReactNode } from 'react'
 import { defaultDeparture, departureToIso } from '../lib/format'
+import type { IconName } from '../lib/icons'
 import type { AnalyzeRequest, ApiError, IntervalMiles } from '../types/api'
+import Icon from './Icon'
 
 export type FieldName = NonNullable<ApiError['error']['field']>
 export type FieldErrors = Partial<Record<FieldName, string>>
@@ -46,6 +48,24 @@ function readForm(values: {
   }
 }
 
+/** A labelled input with its icon inside, and the field's error under it. */
+function Field({ label, icon, error, name, children }: { label: string; icon: IconName; error?: string; name: FieldName; children: ReactNode }) {
+  return (
+    <label className="field">
+      <span className="field-label">{label}</span>
+      <span className="input" data-invalid={error ? 'true' : undefined}>
+        <Icon name={icon} size={17} />
+        {children}
+      </span>
+      {error && (
+        <span className="field-error" id={`${name}-error`} role="alert">
+          {error}
+        </span>
+      )}
+    </label>
+  )
+}
+
 export default function AnalysisForm({ loading, serverErrors, onSubmit }: Props) {
   const [origin, setOrigin] = useState('Chicago, IL')
   const [destination, setDestination] = useState('Denver, CO')
@@ -68,63 +88,41 @@ export default function AnalysisForm({ loading, serverErrors, onSubmit }: Props)
     onSubmit(result.request)
   }
 
-  function field(name: FieldName) {
-    const message = errors[name]
-    return {
-      'aria-invalid': message ? true : undefined,
-      'aria-describedby': message ? `${name}-error` : undefined,
-    }
-  }
-
-  const error = (name: FieldName) =>
-    errors[name] ? (
-      <p className="field-error" id={`${name}-error`} role="alert">
-        {errors[name]}
-      </p>
-    ) : null
+  const aria = (name: FieldName) => ({
+    'aria-invalid': errors[name] ? true : undefined,
+    'aria-describedby': errors[name] ? `${name}-error` : undefined,
+  })
 
   return (
     <form className="form" onSubmit={handleSubmit} noValidate>
-      <label className="field">
-        <span className="field-label">From</span>
+      <Field label="From" icon="circleDot" name="origin" error={errors.origin}>
         <input
           type="text"
           value={origin}
           onChange={(e) => setOrigin(e.target.value)}
           placeholder="City, state or address"
           autoComplete="off"
-          {...field('origin')}
+          {...aria('origin')}
         />
-        {error('origin')}
-      </label>
+      </Field>
 
-      <label className="field">
-        <span className="field-label">To</span>
+      <Field label="To" icon="flag" name="destination" error={errors.destination}>
         <input
           type="text"
           value={destination}
           onChange={(e) => setDestination(e.target.value)}
           placeholder="City, state or address"
           autoComplete="off"
-          {...field('destination')}
+          {...aria('destination')}
         />
-        {error('destination')}
-      </label>
+      </Field>
 
       <div className="field-row">
-        <label className="field">
-          <span className="field-label">Departure</span>
-          <input
-            type="datetime-local"
-            value={departure}
-            onChange={(e) => setDeparture(e.target.value)}
-            {...field('departure')}
-          />
-          {error('departure')}
-        </label>
+        <Field label="Departure" icon="calendarClock" name="departure" error={errors.departure}>
+          <input type="datetime-local" value={departure} onChange={(e) => setDeparture(e.target.value)} {...aria('departure')} />
+        </Field>
 
-        <label className="field">
-          <span className="field-label">Load weight (lb)</span>
+        <Field label="Load (lb)" icon="weight" name="load_weight_lb" error={errors.load_weight_lb}>
           <input
             type="number"
             inputMode="numeric"
@@ -132,10 +130,9 @@ export default function AnalysisForm({ loading, serverErrors, onSubmit }: Props)
             step={100}
             value={load}
             onChange={(e) => setLoad(e.target.value)}
-            {...field('load_weight_lb')}
+            {...aria('load_weight_lb')}
           />
-          {error('load_weight_lb')}
-        </label>
+        </Field>
       </div>
       <p className="hint">Departure is in your time zone ({TIME_ZONE}).</p>
 
@@ -155,11 +152,16 @@ export default function AnalysisForm({ loading, serverErrors, onSubmit }: Props)
             </label>
           ))}
         </div>
-        {error('interval_miles')}
+        {errors.interval_miles && (
+          <span className="field-error" id="interval_miles-error" role="alert">
+            {errors.interval_miles}
+          </span>
+        )}
       </fieldset>
 
       <button type="submit" className="primary" disabled={loading}>
         {loading ? 'Analyzing…' : 'Analyze routes'}
+        {!loading && <Icon name="arrowRight" size={17} />}
       </button>
     </form>
   )

@@ -339,3 +339,91 @@ def test_final_level_is_never_below_the_base_level_across_a_grid():
 def test_integer_inputs_are_accepted():
     risk = assess_checkpoint(wind_mph=45, rain_in_hr=0, snow_in_hr=0, load_weight_lb=31_000)
     assert risk.level == NO_TRAVEL
+
+
+# ------------------------------------------------------------------------------- risk_score
+
+from trip.risk import risk_score  # noqa: E402
+
+
+def _score(wind=0.0, rain=0.0, snow=0.0, load=0.0):
+    level = assess_checkpoint(wind, rain, snow, load).level
+    return risk_score(wind, rain, snow, level), level
+
+
+class TestRiskScore:
+    def test_calm_is_zero(self):
+        assert _score() == (0.0, RiskLevel.LOW)
+
+    @pytest.mark.parametrize(
+        "wind, expected",
+        [(0, 0.0), (12.5, 0.5), (25, 1.0), (30, 1.5), (35, 2.0), (40, 2.5), (45, 3.0), (50, 3.5), (54.9, 3.99)],
+    )
+    def test_wind_is_placed_between_its_thresholds(self, wind, expected):
+        assert _score(wind=wind)[0] == pytest.approx(expected, abs=0.01)
+
+    @pytest.mark.parametrize("rain, expected", [(0.05, 0.5), (0.10, 1.0), (0.175, 1.5), (0.25, 2.0), (0.375, 2.5), (0.5, 3.0), (0.75, 3.5)])
+    def test_rain_is_placed_between_its_thresholds(self, rain, expected):
+        assert _score(rain=rain)[0] == pytest.approx(expected, abs=0.01)
+
+    @pytest.mark.parametrize("snow, expected", [(0.25, 0.5), (0.5, 1.0), (0.75, 1.5), (1.0, 2.0), (1.5, 2.5), (2.0, 3.0), (2.5, 3.5)])
+    def test_snow_is_placed_between_its_thresholds(self, snow, expected):
+        assert _score(snow=snow)[0] == pytest.approx(expected, abs=0.01)
+
+    def test_the_worst_condition_counts(self):
+        assert _score(wind=12.5, rain=0.175, snow=0.0)[0] == pytest.approx(1.5, abs=0.01)
+        assert _score(wind=40, rain=0.05, snow=0.1)[0] == pytest.approx(2.5, abs=0.01)
+
+    def test_no_travel_is_exactly_four(self):
+        for kwargs in ({"wind": 55}, {"wind": 80}, {"rain": 1.01}, {"snow": 3.1}):
+            assert _score(**kwargs) == (4.0, RiskLevel.NO_TRAVEL)
+
+    def test_the_exact_no_travel_edge_of_rain_and_snow_stays_in_severe(self):
+        # rain 1.00 and snow 3.0 are Severe, not No Travel (CLAUDE.md section 3): the score must agree
+        for kwargs in ({"rain": 1.00}, {"snow": 3.0}):
+            score, level = _score(**kwargs)
+            assert level == RiskLevel.SEVERE and 3.0 <= score < 4.0
+
+    def test_a_load_rule_lifts_the_score_to_the_start_of_the_level(self):
+        light, light_level = _score(wind=40, load=40_000)  # High, not over 40,000 lb
+        heavy, heavy_level = _score(wind=40, load=40_001)  # Severe by the load rule
+        assert light_level == RiskLevel.HIGH and light == pytest.approx(2.5, abs=0.01)
+        assert heavy_level == RiskLevel.SEVERE and heavy == 3.0
+
+    def test_a_load_rule_to_no_travel(self):
+        assert _score(wind=50, load=30_001) == (4.0, RiskLevel.NO_TRAVEL)
+        assert _score(wind=50, load=30_000)[1] == RiskLevel.SEVERE
+
+    def test_the_whole_part_is_always_the_level(self):
+        winds = [0, 5, 24.99, 25, 34.99, 35, 40, 44.99, 45, 50, 54.99, 55, 70]
+        rains = [0, 0.05, 0.0999, 0.10, 0.2499, 0.25, 0.4999, 0.50, 1.00, 1.0001, 3]
+        snows = [0, 0.4, 0.4999, 0.5, 0.9999, 1.0, 1.9999, 2.0, 3.0, 3.0001, 6]
+        loads = [0, 30_000, 30_001, 40_000, 40_001, 90_000]
+        for wind, rain, snow, load in itertools.product(winds, rains, snows, loads):
+            score, level = _score(wind, rain, snow, load)
+            assert 0.0 <= score <= 4.0
+            assert int(score) == int(level), (wind, rain, snow, load, score, level)
+
+    def test_it_never_goes_down_when_the_weather_gets_worse(self):
+        for load in (0, 35_000, 50_000):
+            for series in ("wind", "rain", "snow"):
+                top = {"wind": 70, "rain": 2.0, "snow": 4.0}[series]
+                previous = -1.0
+                for i in range(0, 401):
+                    score, _ = _score(**{series: top * i / 400}, load=load)
+                    assert score >= previous - 1e-9, (series, load, i)
+                    previous = score
+
+    def test_light_wind_differences_show_up(self):
+        # the point of the score: 5 mph and 20 mph are both "Low" but not the same weather
+        assert _score(wind=5)[1] == _score(wind=20)[1] == RiskLevel.LOW
+        assert _score(wind=20)[0] - _score(wind=5)[0] > 0.5
+
+    @pytest.mark.parametrize("bad", [None, math.nan, -1.0, math.inf, "5", True])
+    def test_a_bad_measurement_is_refused_not_scored_as_zero(self, bad):
+        with pytest.raises(ValueError):
+            risk_score(bad, 0.0, 0.0, RiskLevel.LOW)
+        with pytest.raises(ValueError):
+            risk_score(0.0, bad, 0.0, RiskLevel.LOW)
+        with pytest.raises(ValueError):
+            risk_score(0.0, 0.0, bad, RiskLevel.LOW)

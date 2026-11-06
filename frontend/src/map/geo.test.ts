@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { checkpoint, route } from '../lib/testData'
-import { checkpointDots, placeDots, riskSegments, routeLines } from './geo'
+import { checkpointDots, placeDots, riskSegments, routeLines, selectedLine } from './geo'
 
 describe('routeLines', () => {
   it('has one line per route, flagging the selected one', () => {
@@ -45,20 +45,43 @@ describe('riskSegments', () => {
   })
 })
 
+describe('selectedLine', () => {
+  it('is one line with the route geometry', () => {
+    const line = selectedLine(route('B'))
+    expect(line.features).toHaveLength(1)
+    expect(line.features[0].properties.id).toBe('B')
+    expect(line.features[0].geometry.coordinates).toEqual(route('B').geometry)
+  })
+
+  it('is empty when no route is selected', () => {
+    expect(selectedLine(undefined).features).toEqual([])
+  })
+})
+
 describe('checkpointDots', () => {
-  it('puts a dot at each checkpoint as (lon, lat) with its index and level', () => {
-    const r = route('A', {
-      checkpoints: [
-        checkpoint({ index: 0, lat: 41.88, lon: -87.63, level: 'low' }),
-        checkpoint({ index: 1, lat: 42.5, lon: -88.1, level: 'no_travel' }),
-      ],
-    })
-    const dots = checkpointDots(r)
-    expect(dots.features.map((f) => f.properties)).toEqual([
-      { index: 0, level: 'low' },
-      { index: 1, level: 'no_travel' },
+  const rainy = checkpoint({
+    index: 1,
+    lat: 42.5,
+    lon: -88.1,
+    level: 'no_travel',
+    level_by: { wind: 'low', rain: 'no_travel', snow: 'low' },
+    weather: { wind_mph: 5, rain_in_hr: 1.2, snow_in_hr: 0 },
+  })
+  const calm = checkpoint({ index: 0, lat: 41.88, lon: -87.63, level: 'low' })
+
+  it('puts a marker at each checkpoint as (lon, lat) with its index, level and weather picture', () => {
+    const dots = checkpointDots(route('A', { checkpoints: [calm, rainy] }))
+    expect(dots.features.map((f) => [f.properties.index, f.properties.level, f.properties.glyph])).toEqual([
+      [0, 'low', 'clear'],
+      [1, 'no_travel', 'rain'],
     ])
     expect(dots.features[1].geometry.coordinates).toEqual([-88.1, 42.5])
+  })
+
+  it('ranks the worst level first, so it is the last to be hidden when markers overlap', () => {
+    const levels = ['low', 'moderate', 'high', 'severe', 'no_travel'] as const
+    const dots = checkpointDots(route('A', { checkpoints: levels.map((level, index) => checkpoint({ index, level })) }))
+    expect(dots.features.map((f) => f.properties.rank)).toEqual([4, 3, 2, 1, 0])
   })
 
   it('is empty when no route is selected', () => {

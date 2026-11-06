@@ -1,6 +1,8 @@
 // GeoJSON for the map, built from the API's routes. Pure functions: no map library needed,
 // so they are easy to test.
 
+import { RISK_LEVELS } from '../lib/risk'
+import { weatherGlyph, type WeatherGlyph } from '../lib/weatherIcon'
 import type { Checkpoint, Coordinate, ResolvedPlace, RiskLevel, Route } from '../types/api'
 
 export interface Feature<P, G> {
@@ -44,15 +46,34 @@ export function riskSegments(route: Route | undefined): Collection<{ level: Risk
   }
 }
 
-/** The selected route's checkpoints, as dots colored by level. */
+/** The selected route as one line (one feature, so the map can draw it growing from the origin). */
+export function selectedLine(route: Route | undefined): Collection<{ id: string }, Line> {
+  return {
+    type: 'FeatureCollection',
+    features: route
+      ? [{ type: 'Feature', properties: { id: route.id }, geometry: { type: 'LineString', coordinates: route.geometry } }]
+      : [],
+  }
+}
+
+/**
+ * The selected route's checkpoints, as markers: colored by level, with the weather picture.
+ * `rank` is the placement priority when markers would overlap (0 is placed first): the worst
+ * levels are never the ones that get hidden.
+ */
 export function checkpointDots(
   route: Route | undefined,
-): Collection<{ index: number; level: RiskLevel }, Point> {
+): Collection<{ index: number; level: RiskLevel; glyph: WeatherGlyph; rank: number }, Point> {
   return {
     type: 'FeatureCollection',
     features: (route?.checkpoints ?? []).map((checkpoint: Checkpoint) => ({
       type: 'Feature',
-      properties: { index: checkpoint.index, level: checkpoint.level },
+      properties: {
+        index: checkpoint.index,
+        level: checkpoint.level,
+        glyph: weatherGlyph(checkpoint),
+        rank: RISK_LEVELS.length - 1 - RISK_LEVELS.indexOf(checkpoint.level),
+      },
       geometry: { type: 'Point', coordinates: [checkpoint.lon, checkpoint.lat] },
     })),
   }

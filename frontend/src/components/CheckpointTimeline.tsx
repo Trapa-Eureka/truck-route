@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react'
-import { checkpointTitle, formatShortTime, loadRuleNote, weatherLine } from '../lib/checkpoint'
+import { checkpointTitle, formatShortTime, loadRuleNote, weatherRows } from '../lib/checkpoint'
 import { RISK_COLORS, RISK_LABELS } from '../lib/risk'
+import { GLYPH_LABELS, weatherGlyph } from '../lib/weatherIcon'
 import type { RiskLevel, Route } from '../types/api'
+import WeatherGlyph from './WeatherGlyph'
 
 const TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone
 
@@ -25,12 +27,15 @@ export default function CheckpointTimeline({ route, activeIndex, onSelect }: Pro
   const last = route.checkpoints.length - 1
   return (
     <section className="timeline" aria-labelledby="timeline-title">
-      <h2 id="timeline-title">Route {route.id} checkpoints</h2>
+      <h2 id="timeline-title">
+        Route {route.id} checkpoints <span className="count">{route.checkpoints.length}</span>
+      </h2>
       <p className="hint">Estimated arrival times in your time zone ({TIME_ZONE}).</p>
       <ol>
         {route.checkpoints.map((checkpoint, position) => {
           const note = loadRuleNote(checkpoint)
           const active = checkpoint.index === activeIndex
+          const glyph = weatherGlyph(checkpoint)
           return (
             <li key={checkpoint.index}>
               <button
@@ -43,7 +48,13 @@ export default function CheckpointTimeline({ route, activeIndex, onSelect }: Pro
                   else items.current.delete(checkpoint.index)
                 }}
               >
-                <span className="timeline-dot" style={{ background: RISK_COLORS[checkpoint.level] }} />
+                <span
+                  className="timeline-badge"
+                  style={{ borderColor: RISK_COLORS[checkpoint.level] }}
+                  title={GLYPH_LABELS[glyph]}
+                >
+                  <WeatherGlyph glyph={glyph} size={22} />
+                </span>
                 <span className="timeline-main">
                   <span className="timeline-title">{checkpointTitle(checkpoint, position === last)}</span>
                   <span className={isSerious(checkpoint.level) ? 'timeline-level serious' : 'timeline-level'}>
@@ -51,7 +62,20 @@ export default function CheckpointTimeline({ route, activeIndex, onSelect }: Pro
                   </span>
                   <span className="timeline-time">{formatShortTime(checkpoint.eta)}</span>
                 </span>
-                <span className="timeline-weather">{weatherLine(checkpoint)}</span>
+                <span className="timeline-weather">
+                  {weatherRows(checkpoint).map((row) => (
+                    <span
+                      className="wx"
+                      key={row.label}
+                      data-alert={row.level === 'low' ? 'false' : 'true'}
+                      style={{ '--tone': RISK_COLORS[row.level] } as React.CSSProperties}
+                      title={`${row.label}: ${RISK_LABELS[row.level]}`}
+                    >
+                      <WeatherGlyph glyph={row.icon} size={15} />
+                      {row.value}
+                    </span>
+                  ))}
+                </span>
                 {note && <span className="timeline-note">{note}</span>}
               </button>
             </li>

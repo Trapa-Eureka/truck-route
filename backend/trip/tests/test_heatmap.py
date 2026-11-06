@@ -1,6 +1,7 @@
 """Tests for trip/heatmap.py: the 49-hour risk grid, with fake TomTom and weather."""
 
 import json
+import math
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -29,13 +30,18 @@ def run(weather=None, routes=None, **req):
     return heatmap(request(**req), routing, weather), routing, weather
 
 
+def levels(result):
+    """The risk level of every point and hour: the whole part of the score."""
+    return [[int(score) for score in row] for row in result["scores"]]
+
+
 class TestShape:
     def test_keys_and_sizes(self):
         result, _, _ = run()
-        assert set(result) == {"start", "hours", "spacing_deg", "points", "levels"}
+        assert set(result) == {"start", "hours", "spacing_deg", "points", "scores"}
         assert result["hours"] == HOURS == 49
-        assert len(result["levels"]) == 49
-        assert all(len(row) == len(result["points"]) for row in result["levels"])
+        assert len(result["scores"]) == 49
+        assert all(len(row) == len(result["points"]) for row in result["scores"])
         assert 10 < len(result["points"]) < 60  # a 157-mile route and its 40-mile margin
 
     def test_points_are_lon_lat_on_the_grid(self):
@@ -70,9 +76,12 @@ class TestShape:
         assert len(big["points"]) <= 600
         assert len(weather.calls[0]) == len(big["points"]) * 49
 
-    def test_levels_are_integers_0_to_4(self):
+    def test_scores_are_numbers_from_0_to_4_with_two_decimals(self):
         result, _, _ = run(weather=FakeWeather(lambda q: WeatherSample(40.0 + q.time.hour, 0.0, 0.0)))
-        assert all(isinstance(level, int) and 0 <= level <= 4 for row in result["levels"] for level in row)
+        for row in result["scores"]:
+            for score in row:
+                assert 0.0 <= score <= 4.0
+                assert score == round(score, 2)
 
     def test_the_result_is_plain_json(self):
         result, _, _ = run()
@@ -127,7 +136,7 @@ class TestHours:
         start = datetime(2026, 11, 9, 12, tzinfo=UTC)
         fake = FakeWeather(lambda q: WeatherSample(50.0 if q.time == start + timedelta(hours=5) else 5.0, 0.0, 0.0))
         result, _, _ = run(weather=fake, load_weight_lb=20000.0)
-        rows = result["levels"]
+        rows = levels(result)
         assert set(rows[5]) == {3}  # 45-54 mph is Severe for a light load
         for hour, row in enumerate(rows):
             if hour != 5:
@@ -137,7 +146,7 @@ class TestHours:
         start = datetime(2026, 11, 9, 12, tzinfo=UTC)
         fake = FakeWeather(lambda q: WeatherSample(30.0 if q.time == start + timedelta(hours=48) else 5.0, 0.0, 0.0))
         result, _, _ = run(weather=fake)
-        assert set(result["levels"][48]) == {1} and set(result["levels"][47]) == {0}
+        assert set(levels(result)[48]) == {1} and set(levels(result)[47]) == {0}
 
 
 class TestLevelsMatchTheCheckpointRules:
@@ -150,19 +159,19 @@ class TestLevelsMatchTheCheckpointRules:
             (WeatherSample(0.0, 0.0, 0.0), 0),
         ]:
             result, _, _ = run(weather=FakeWeather(lambda q, s=sample: s))
-            assert {l for row in result["levels"] for l in row} == {level}
+            assert {l for row in levels(result) for l in row} == {level}
 
     def test_the_load_rules_are_applied(self):
         weather = FakeWeather(lambda q: WeatherSample(40.0, 0.0, 0.0))
         light, _, _ = run(weather=weather, load_weight_lb=40000.0)
         heavy, _, _ = run(weather=weather, load_weight_lb=40001.0)
-        assert {l for row in light["levels"] for l in row} == {2}  # 35-44 mph, not over 40,000 lb: High
-        assert {l for row in heavy["levels"] for l in row} == {3}  # over 40,000 lb: Severe
+        assert {l for row in levels(light) for l in row} == {2}  # 35-44 mph, not over 40,000 lb: High
+        assert {l for row in levels(heavy) for l in row} == {3}  # over 40,000 lb: Severe
 
     def test_wind_50_with_a_heavy_load_is_no_travel(self):
         weather = FakeWeather(lambda q: WeatherSample(50.0, 0.0, 0.0))
         result, _, _ = run(weather=weather, load_weight_lb=30001.0)
-        assert {l for row in result["levels"] for l in row} == {4}
+        assert {l for row in levels(result) for l in row} == {4}
 
     def test_the_load_changes_the_levels_but_not_the_weather_asked_for(self):
         w1, w2 = FakeWeather(), FakeWeather()
@@ -177,7 +186,7 @@ class TestLevelsMatchTheCheckpointRules:
         lon, lat = points[target]
         fake = FakeWeather(lambda q: WeatherSample(60.0, 0.0, 0.0) if (q.lon, q.lat) == (lon, lat) else calm())
         result, _, _ = run(weather=fake)
-        for row in result["levels"]:
+        for row in levels(result):
             assert row[target] == 4
             assert sum(1 for level in row if level) == 1
 
@@ -233,3 +242,43 @@ class TestRoutesAndErrors:
 
         with pytest.raises(type(error)):
             heatmap(request(), FakeRouting([recorded_route()]), Failing())
+
+
+class TestScores:
+    def test_calm_weather_is_zero_everywhere(self):
+        result, _, _ = run(weather=FakeWeather(lambda q: WeatherSample(0.0, 0.0, 0.0)))
+        assert {s for row in result["scores"] for s in row} == {0.0}
+
+    def test_different_low_winds_give_different_scores(self):
+        # 5 mph and 20 mph are both Low, but the map must be able to tell them apart
+        calm, _, _ = run(weather=FakeWeather(lambda q: WeatherSample(5.0, 0.0, 0.0)))
+        breezy, _, _ = run(weather=FakeWeather(lambda q: WeatherSample(20.0, 0.0, 0.0)))
+        assert {l for row in levels(calm) for l in row} == {l for row in levels(breezy) for l in row} == {0}
+        assert {s for row in calm["scores"] for s in row} == {0.2}
+        assert {s for row in breezy["scores"] for s in row} == {0.8}
+
+    def test_the_score_of_each_hour_follows_that_hours_weather(self):
+        start = datetime(2026, 11, 9, 12, tzinfo=UTC)
+        fake = FakeWeather(lambda q: WeatherSample(float((q.time - start).total_seconds() // 3600), 0.0, 0.0))
+        result, _, _ = run(weather=fake)
+        for hour, row in enumerate(result["scores"]):
+            expected = round(hour / 25, 2) if hour < 25 else None
+            if expected is not None:
+                assert set(row) == {expected}, hour
+
+    def test_a_score_never_crosses_into_the_next_level_by_rounding(self):
+        # wind 34.999 is Moderate; its score stays 1.99 (the top of the band), never 2.0
+        result, _, _ = run(weather=FakeWeather(lambda q: WeatherSample(34.999, 0.0, 0.0)))
+        scores = {s for row in result["scores"] for s in row}
+        assert scores == {1.99} and {l for row in levels(result) for l in row} == {1}
+
+    def test_a_load_rule_lifts_the_score_to_the_start_of_the_level(self):
+        weather = FakeWeather(lambda q: WeatherSample(40.0, 0.0, 0.0))
+        light, _, _ = run(weather=weather, load_weight_lb=40000.0)
+        heavy, _, _ = run(weather=weather, load_weight_lb=40001.0)
+        assert {s for row in light["scores"] for s in row} == {2.5}
+        assert {s for row in heavy["scores"] for s in row} == {3.0}
+
+    def test_no_travel_is_exactly_four(self):
+        result, _, _ = run(weather=FakeWeather(lambda q: WeatherSample(60.0, 0.0, 0.0)))
+        assert {s for row in result["scores"] for s in row} == {4.0}

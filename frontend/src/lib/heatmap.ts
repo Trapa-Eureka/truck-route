@@ -16,15 +16,15 @@ export interface HeatFeature {
 }
 
 /**
- * One point per grid point, carrying all its levels as h0..h48. The whole forecast is loaded into
- * the map once; moving the slider only changes which property the color is read from.
+ * One point per grid point, carrying all its scores (0 to 4) as h0..h48. The whole forecast is
+ * loaded into the map once; moving the slider only changes which property the color is read from.
  */
 export function heatFeatures(data: HeatmapResponse): { type: 'FeatureCollection'; features: HeatFeature[] } {
   return {
     type: 'FeatureCollection',
     features: data.points.map((coordinates, i) => {
       const properties: Record<string, number> = {}
-      for (let hour = 0; hour < data.levels.length; hour++) properties[hourProperty(hour)] = data.levels[hour][i]
+      for (let hour = 0; hour < data.scores.length; hour++) properties[hourProperty(hour)] = data.scores[hour][i]
       return { type: 'Feature', properties, geometry: { type: 'Point', coordinates } }
     }),
   }
