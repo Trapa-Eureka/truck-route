@@ -79,7 +79,7 @@ Apply the priorities below as a **lexicographic comparison**: look at the next c
 4. **Shortest travel time**
 
 - `[Interpretation]` Miles per level: place checkpoints at the origin (mile 0), every sampling interval, and the destination. Each checkpoint stands for the stretch from the midpoint to the previous checkpoint to the midpoint to the next (miles per level sum to the route's total distance), and that length is added to the checkpoint's level.
-- `[Interpretation]` Tie rule: compare the rounded values that are shown on screen (miles to 1 mile, average risk to 2 decimals, travel time to the minute). Comparing unrounded floats almost always decides at criterion 3, so criterion 4 (travel time) would never be used, which contradicts the PDF's "balancing weather risk and travel time".
+- `[Interpretation]` Tie rule: compare the rounded values that are shown on screen (miles to 1 mile, average risk to 2 decimals, travel time to the minute). Comparing unrounded floats almost always decides at criterion 3, so criterion 4 (travel time) would never be used, which contradicts the PDF's "balancing weather risk and travel time". Rounding is **half up** (24.5 miles shows as 25), not Python's round-half-to-even, so an exact half does not turn a tie on screen into a difference. If two routes tie on all four, the route listed first by the routing API wins (reported as `decided_by: duration`).
 - `[Interpretation]` Average risk = levels converted to numbers (Low 0, Moderate 1, High 2, Severe 3, No Travel 4) and averaged weighted by stretch length.
 - `[Interpretation]` A route with **any No Travel** checkpoint is excluded from the recommendation and shown as impassable. If all 3 routes have No Travel, show no recommendation and explain why. (The PDF does not say how to handle No Travel routes.)
 - The recommendation states **why this route** won (which criterion beat the others) in one line. Example (the UI is English): "0 severe miles, 20 min slower than Route B"
@@ -273,12 +273,14 @@ The order is: lock the logic down with tests first, then attach the screens. Mar
 
 ### Step 6. Route summary and recommendation
 
-- [ ] Compute the route summary: Severe miles, High miles, average risk, travel time
-- [ ] Compare the 4 criteria in order (no weighted score, ties decided on rounded values)
-- [ ] Exclude No Travel routes, and no recommendation if all 3 are No Travel
-- [ ] Generate the one-line recommendation reason
-- [ ] Test: cases decided at each of criteria 1, 2, 3, 4
-- [ ] Test: some routes No Travel and all routes No Travel
+- [x] Compute the route summary: `summarize_route()` in `backend/trip/summary.py` takes the checkpoints' levels with the miles each stands for and returns the contract's summary fields, already rounded for display (miles per level, `severe_miles`, `high_miles`, `avg_risk` weighted by length, `duration_minutes`, `arrival`, `has_no_travel`). Severe miles are the Severe level only (not No Travel), High miles the High level only
+- [x] Compare the 4 criteria in order (no weighted score, ties decided on rounded values): `recommend()` in `backend/trip/recommend.py` sorts by the tuple (Severe miles, High miles, average risk, minutes) of the rounded values. The sort is stable, so a full tie keeps the routing API's order. `decided_by` is the first criterion on which the winner differs from the **runner-up** (not from last place)
+- [x] Exclude No Travel routes, and no recommendation if all 3 are No Travel: excluded routes are listed in `excluded_route_ids`; with none left `route_id` is `null` (not an error); with one left it is `only_candidate`; fewer than 3 routes work the same way
+- [x] The one-line recommendation reason: the backend sends the structured values (`decided_by`, `versus_route_id`, `duration_delta_minutes`), as the contract says. The English sentence is built by the frontend in Step 8 ("Show the recommended route and a one-line reason")
+- [x] Test: cases decided at each of criteria 1, 2, 3, 4 (`backend/trip/tests/test_recommend.py`), plus "not a blended score" cases (0 severe miles beats any speed, and so on) and ties on rounded values (24.6 vs 25.4 severe miles, average risk 0.331 vs 0.334, 30-second differences in minutes) built end to end through `summarize_route`
+- [x] Test: some routes No Travel and all routes No Travel, one route left, one route given, no route given; 3,000 random cases (with many ties) against a plain `min()` of the four values
+- [x] Verified the tests catch mistakes (2026-11-06): 42 deliberate mutations of `summary.py` and `recommend.py` (criteria dropped or swapped, round-half-even, unweighted average, wrong level fields, flipped delta sign, wrong runner-up ...), all caught. 883 tests pass
+- [x] Checked on a real route (2026-11-06): the recorded Chicago route with live weather plus two invented storm variants went through sampling → weather → risk → summary → recommendation. By hand, 40 mph at 3 checkpoints of 25 miles gives 75 High miles and average risk 75×2/157 = 0.96; with a 45,000 lb load the same wind is Severe and a 50 mph checkpoint becomes No Travel, which excludes that route
 
 ### Step 7. Backend integration and manual verification
 

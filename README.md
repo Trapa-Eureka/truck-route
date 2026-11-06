@@ -61,7 +61,7 @@ Where the assignment document is silent, these choices were made.
 **Route recommendation**
 
 - The 4 criteria are compared in order, and the next criterion is used only when the previous one is tied. They are never blended into a weighted score.
-- Ties are decided on the values shown on screen (miles to 1 mile, average risk to 2 decimals, travel time to the minute).
+- Ties are decided on the values shown on screen (miles to 1 mile, average risk to 2 decimals, travel time to the minute), rounding halves up (24.5 miles shows as 25). If two routes tie on everything, the route the routing service listed first wins.
 - A route with any No Travel stretch is excluded from the recommendation. If all 3 routes have one, no route is recommended and the reason is shown.
 
 **Weather forecast**

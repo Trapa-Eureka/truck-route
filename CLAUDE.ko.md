@@ -79,7 +79,7 @@ Spotter Full Stack Developer 과제(`fs-assessment-spotter.pdf`) — **Weather-A
 4. **이동 시간이 가장 짧은 경로**
 
 - `[해석]` 구간 마일 수: checkpoint는 출발지(0마일), 샘플링 간격마다, 도착지에 둔다. 각 checkpoint는 앞뒤 checkpoint와의 중간 지점까지를 대표하고(등급별 마일 합계 = 경로 전체 거리), 그 길이를 해당 checkpoint의 등급에 합산한다.
-- `[해석]` 동점 판정: 화면에 표시하는 값으로 반올림해 비교한다(마일은 1마일, 평균 위험도는 소수 둘째 자리, 이동 시간은 분). 반올림 없이 실수로 비교하면 3번 기준에서 거의 항상 승부가 나서 4번(이동 시간)이 쓰이지 않고, PDF의 "balancing weather risk and travel time"과 어긋난다.
+- `[해석]` 동점 판정: 화면에 표시하는 값으로 반올림해 비교한다(마일은 1마일, 평균 위험도는 소수 둘째 자리, 이동 시간은 분). 반올림 없이 실수로 비교하면 3번 기준에서 거의 항상 승부가 나서 4번(이동 시간)이 쓰이지 않고, PDF의 "balancing weather risk and travel time"과 어긋난다. 반올림은 파이썬의 `round`(짝수 쪽으로)가 아니라 **반올림(half up)**이다(24.5마일은 25로 표시). 딱 절반인 값 때문에 화면에서는 동점인데 비교에서는 차이가 나는 일이 없게 하려는 것이다. 네 기준이 모두 같으면 라우팅 API가 먼저 준 경로가 이긴다(`decided_by: duration`으로 보고).
 - `[해석]` 평균 위험도 = 등급을 수치(Low 0, Moderate 1, High 2, Severe 3, No Travel 4)로 바꿔 구간 길이로 가중평균한 값.
 - `[해석]` **No Travel** checkpoint가 하나라도 있는 경로는 추천에서 제외하고 "통행 불가"로 표시한다. 3개 경로 모두 No Travel이면 추천 없이 사유를 보여준다. (PDF는 No Travel 경로 처리 방식을 명시하지 않음)
 - 추천 결과에는 **왜 이 경로인지**(어느 기준에서 다른 경로를 이겼는지)를 한 줄로 설명한다. 예(UI는 영어): "0 severe miles, 20 min slower than Route B"
@@ -273,12 +273,14 @@ Spotter Full Stack Developer 과제(`fs-assessment-spotter.pdf`) — **Weather-A
 
 ### 6단계. 경로 요약과 추천
 
-- [ ] 경로 요약 계산: Severe 마일, High 마일, 평균 위험도, 이동 시간
-- [ ] 4개 기준 순서대로 비교 (가중치 점수 금지, 반올림한 값으로 동점 판정)
-- [ ] No Travel 경로 제외, 3개 모두 No Travel이면 추천 없음
-- [ ] 추천 이유 한 줄 생성
-- [ ] 테스트: 1·2·3·4번 기준 각각에서 승부가 갈리는 경우
-- [ ] 테스트: No Travel 경로가 일부인 경우와 전부인 경우
+- [x] 경로 요약 계산: `backend/trip/summary.py`의 `summarize_route()`가 체크포인트의 등급과 각각이 대표하는 마일을 받아, 계약의 요약 필드를 표시용으로 반올림해 돌려준다(등급별 마일, `severe_miles`, `high_miles`, 구간 길이로 가중한 `avg_risk`, `duration_minutes`, `arrival`, `has_no_travel`). Severe 마일은 Severe 등급만(No Travel 제외), High 마일은 High 등급만이다
+- [x] 4개 기준 순서대로 비교 (가중치 점수 금지, 반올림한 값으로 동점 판정): `backend/trip/recommend.py`의 `recommend()`가 반올림한 값의 튜플(Severe 마일, High 마일, 평균 위험도, 분)로 정렬한다. 정렬은 안정(stable)이라 네 기준이 모두 같으면 라우팅 API가 준 순서가 유지된다. `decided_by`는 승자가 **차점 경로**(꼴찌가 아님)와 처음 달라지는 기준이다
+- [x] No Travel 경로 제외, 3개 모두 No Travel이면 추천 없음: 제외된 경로는 `excluded_route_ids`에 담고, 남은 경로가 없으면 `route_id`는 `null`(오류 아님), 하나 남으면 `only_candidate`, 경로가 3개 미만이어도 같은 방식으로 동작한다
+- [x] 추천 이유 한 줄: 계약대로 백엔드는 구조화된 값(`decided_by`, `versus_route_id`, `duration_delta_minutes`)만 보낸다. 영어 문장은 8단계("추천 경로와 이유 한 줄 표시")에서 프론트엔드가 만든다
+- [x] 테스트: 1·2·3·4번 기준 각각에서 승부가 갈리는 경우(`backend/trip/tests/test_recommend.py`), "점수로 섞지 않음" 사례(심각 0마일이 어떤 속도보다 우선 등), 반올림한 값의 동점(심각 24.6 vs 25.4마일, 평균 위험도 0.331 vs 0.334, 분 단위 30초 차이)을 `summarize_route`부터 끝까지 이어서 검증
+- [x] 테스트: No Travel 경로가 일부인 경우와 전부인 경우, 하나만 남는 경우, 경로가 하나만 주어진 경우, 없는 경우; 동점이 많은 무작위 3,000건을 네 값의 단순 `min()`과 대조
+- [x] 테스트가 실수를 잡는지 검증(2026-11-06): `summary.py`와 `recommend.py`에 의도적 변형 42개(기준 빼기·바꾸기, 짝수 반올림, 가중하지 않은 평균, 잘못된 등급 필드, 뒤집힌 차이 부호, 잘못된 차점 경로 등)를 넣었고 모두 잡았다. 테스트 883개 통과
+- [x] 실제 경로로 확인(2026-11-06): 기록해 둔 시카고 경로에 실제 날씨와 가상의 폭풍 변형 두 개를 더해 샘플링 → 날씨 → 위험 → 요약 → 추천까지 이었다. 손으로 계산하면 25마일짜리 체크포인트 3개의 40 mph 바람은 High 75마일, 평균 위험도 75×2/157 = 0.96이다. 적재 45,000 lb에서는 같은 바람이 Severe가 되고 50 mph 체크포인트는 No Travel이 되어 그 경로가 제외된다
 
 ### 7단계. 백엔드 통합과 수동 검증
 
