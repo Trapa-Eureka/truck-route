@@ -76,7 +76,7 @@ def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * EARTH_RADIUS_M * math.asin(math.sqrt(a))
 
 
-def _interpolate(xs: Sequence[float], ys: Sequence[float], x: float) -> float:
+def interpolate(xs: Sequence[float], ys: Sequence[float], x: float) -> float:
     """Piecewise-linear ``y`` at ``x``. ``xs`` must be non-decreasing; ``x`` is clamped.
 
     If ``xs`` repeats a value (the truck makes no progress while time passes) and ``x`` equals
@@ -187,6 +187,36 @@ def represented_miles(miles: Sequence[float]) -> list[float]:
     return [end - start for start, end in zip(boundaries, boundaries[1:])]
 
 
+def _prepare(
+    points: Sequence[tuple[float, float]],
+    anchors: Sequence[Anchor],
+    total_length_m: float,
+    total_time_s: float,
+) -> tuple[list[Anchor], list[float]]:
+    """Validate a route and return its normalized anchors and per-point distances."""
+    if not (math.isfinite(total_length_m) and total_length_m > 0):
+        raise ValueError(f"total_length_m must be positive, got {total_length_m!r}")
+    if not (math.isfinite(total_time_s) and total_time_s >= 0):
+        raise ValueError(f"total_time_s must not be negative, got {total_time_s!r}")
+    _check_points(points)
+    normalized = _normalize_anchors(anchors, len(points) - 1, total_length_m, total_time_s)
+    return normalized, _route_distances_m(points, normalized)
+
+
+def route_distances_m(
+    points: Sequence[tuple[float, float]],
+    anchors: Sequence[Anchor],
+    total_length_m: float,
+    total_time_s: float,
+) -> list[float]:
+    """Distance from the origin to every route point, in TomTom's meters.
+
+    Checkpoints use the same distances, so a segment boundary drawn from these lands exactly
+    where a checkpoint stretch ends.
+    """
+    return _prepare(points, anchors, total_length_m, total_time_s)[1]
+
+
 def build_checkpoints(
     points: Sequence[tuple[float, float]],
     anchors: Sequence[Anchor],
@@ -203,14 +233,7 @@ def build_checkpoints(
     """
     if departure.tzinfo is None or departure.utcoffset() is None:
         raise ValueError("departure must be timezone-aware")
-    if not (math.isfinite(total_length_m) and total_length_m > 0):
-        raise ValueError(f"total_length_m must be positive, got {total_length_m!r}")
-    if not (math.isfinite(total_time_s) and total_time_s >= 0):
-        raise ValueError(f"total_time_s must not be negative, got {total_time_s!r}")
-    _check_points(points)
-
-    anchors = _normalize_anchors(anchors, len(points) - 1, total_length_m, total_time_s)
-    distances_m = _route_distances_m(points, anchors)
+    anchors, distances_m = _prepare(points, anchors, total_length_m, total_time_s)
     lats = [lat for lat, _ in points]
     lons = [lon for _, lon in points]
     anchor_offsets = [a.offset_m for a in anchors]
@@ -223,13 +246,13 @@ def build_checkpoints(
     checkpoints = []
     for index, (mile, length) in enumerate(zip(miles, stands_for)):
         meters = mile * METERS_PER_MILE
-        seconds = _interpolate(anchor_offsets, anchor_times, meters)
+        seconds = interpolate(anchor_offsets, anchor_times, meters)
         checkpoints.append(
             Checkpoint(
                 index=index,
                 mile=mile,
-                lat=_interpolate(distances_m, lats, meters),
-                lon=_interpolate(distances_m, lons, meters),
+                lat=interpolate(distances_m, lats, meters),
+                lon=interpolate(distances_m, lons, meters),
                 eta=departure_utc + timedelta(seconds=round(seconds)),
                 represents_miles=length,
             )

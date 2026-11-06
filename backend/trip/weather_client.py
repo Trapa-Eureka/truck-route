@@ -19,6 +19,7 @@ from typing import Any, Callable, NamedTuple, Protocol, Sequence
 
 import requests
 
+from .http import get_json
 from .weather import (
     HOURLY_VARIABLES,
     ForecastOutOfRange,
@@ -35,10 +36,6 @@ OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 MAX_LOCATIONS_PER_REQUEST = 200
 CACHE_TTL_SECONDS = 3600
 REQUEST_TIMEOUT_SECONDS = 20
-MAX_ATTEMPTS = 3
-RETRY_BACKOFF_SECONDS = 1.0
-#: Answers worth retrying: rate limit and server trouble.
-_RETRY_STATUSES = {429, 500, 502, 503, 504}
 MAX_WORKERS = 4
 
 _Location = tuple[float, float]
@@ -220,35 +217,16 @@ class WeatherClient:
             return None
 
     def _get(self, params: dict[str, str]) -> tuple[int, Any]:
-        """GET with retries for rate limits, server errors and network failures.
-
-        Returns ``(200 or 400, parsed JSON)``; anything else ends as ``WeatherUnavailable``.
-        """
-        last_problem = "no attempt was made"
-        for attempt in range(MAX_ATTEMPTS):
-            if attempt:
-                self._sleep(RETRY_BACKOFF_SECONDS * 2 ** (attempt - 1))
-            try:
-                response = self._session.get(
-                    OPEN_METEO_URL, params=params, timeout=REQUEST_TIMEOUT_SECONDS
-                )
-            except requests.RequestException as exc:
-                last_problem = f"{type(exc).__name__}"
-                continue
-            if response.status_code in _RETRY_STATUSES:
-                last_problem = f"HTTP {response.status_code}"
-                continue
-            if response.status_code not in (200, 400):
-                raise WeatherUnavailable(
-                    f"Open-Meteo answered with HTTP {response.status_code}."
-                )
-            try:
-                return response.status_code, response.json()
-            except ValueError:
-                raise WeatherUnavailable(
-                    "Open-Meteo answered with something that is not JSON."
-                ) from None
-        raise WeatherUnavailable(f"Open-Meteo is not responding ({last_problem}).")
+        """GET with retries; returns ``(200 or 400, parsed JSON)`` (see ``http.get_json``)."""
+        return get_json(
+            self._session,
+            OPEN_METEO_URL,
+            params,
+            service="Open-Meteo",
+            error=WeatherUnavailable,
+            timeout=REQUEST_TIMEOUT_SECONDS,
+            sleep=self._sleep,
+        )
 
 
 _default_client: WeatherClient | None = None

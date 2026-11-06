@@ -1,4 +1,7 @@
-from django.urls import path  # noqa: F401
+from django.urls import path
 
-# Endpoints are added as the API contract is implemented (see CLAUDE.md section 11).
-urlpatterns: list = []
+from .views import AnalyzeView
+
+urlpatterns = [
+    path("analyze", AnalyzeView.as_view(), name="analyze"),
+]

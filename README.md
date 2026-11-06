@@ -44,6 +44,12 @@ Load rules:
 
 Where the assignment document is silent, these choices were made.
 
+**Inputs**
+
+- Addresses are looked up in the United States only, and the **first match** is used. The name it resolved to is shown, so a wrong match is visible (for example "Toronto, Canada" resolves to Toronto, Kansas).
+- A departure up to 5 minutes in the past is accepted, because a form that says "now" is already a few seconds old when it arrives. Anything earlier is refused.
+- If the origin and the destination are the same place, the request is refused.
+
 **Risk levels**
 
 - A checkpoint's level is the **highest** of its wind, rain, and snow levels. The load rules only raise this level, never lower it.

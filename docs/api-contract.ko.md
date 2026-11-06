@@ -37,9 +37,9 @@
 
 | 필드 | 형식 | 규칙 |
 |---|---|---|
-| `origin`, `destination` | 문자열 | 서버가 지오코딩한다(`countrySet=US`, 첫 결과). 비어 있으면 안 됨 |
-| `departure` | ISO 8601 | **과거 불가**. 필요한 시간이 예보 끝을 넘으면 `FORECAST_OUT_OF_RANGE` (7절) |
-| `load_weight_lb` | 숫자 | 0 이상. lb 단위 그대로 규칙에 쓰고, TomTom에는 kg으로 변환해 전달 |
+| `origin`, `destination` | 문자열 | 서버가 지오코딩한다(`countrySet=US`, 첫 결과). 비어 있으면 안 되고 200자 이하. 둘이 같은 장소로 확인되면 거부한다(`INVALID_INPUT`, `field: destination`) |
+| `departure` | ISO 8601 (**시간대 포함**) | **과거 불가**. 단 5분 전까지는 받는다(폼의 "지금"은 서버에 닿을 때 이미 몇 초 지나 있다). 2100년 이전 날짜(날짜 계산이 넘치지 않게 하는 용도일 뿐, 실제 한계는 예보다). 필요한 시간이 예보 끝을 넘으면 `FORECAST_OUT_OF_RANGE` (7절) |
+| `load_weight_lb` | 숫자 | 0 이상 1,000,000 이하. lb 단위 그대로 규칙에 쓰고, TomTom에는 kg으로 변환해 전달 |
 | `interval_miles` | `10` \| `25` \| `50` | 이 세 값만 허용 (기본값은 프론트가 25로 채움) |
 
 ### `POST /api/analyze` 응답 (200)
@@ -94,7 +94,8 @@
 
 - `routes`는 TomTom이 준 **N개(1~3)** 그대로다. 3개 미만이어도 오류가 아니다(CLAUDE.md 1단계 방침). 프론트는 개수가 줄었음을 알린다.
 - `geometry`는 **화면 표시용으로 단순화**한 경로선이다. 거리·시간·마일 계산은 TomTom 원본 점으로 한다(원본은 경로당 약 1만 점, CLAUDE.md 7절).
-- `segments`는 `geometry`를 위험 등급이 바뀌는 지점에서 잘라 색칠하기 위한 조각이다. 경계는 인접 checkpoint의 **중간 지점**(CLAUDE.md 5절의 구간 마일 정의와 같음)이다. 이어 붙이면 `geometry`가 된다.
+- `segments`는 `geometry`를 위험 등급이 바뀌는 지점에서 잘라 색칠하기 위한 조각이다. 경계는 인접 checkpoint의 **중간 지점**(CLAUDE.md 5절의 구간 마일 정의와 같음)이다. 이웃한 같은 등급 구간은 하나의 조각이다. 이어 붙이면(공유하는 절단점은 한 번만) `geometry`가 된다.
+- **반올림은 응답을 만들 때만 한다:** 좌표는 소수 5자리(약 1 m), `mile`과 `represents_miles`는 소수 2자리, 시각은 초 단위. `weather` 값은 예보가 준 그대로다. 요약 숫자는 추천이 비교하는 바로 그 반올림 값이다.
 - `checkpoints[].mile`은 출발지부터의 누적 마일, `represents_miles`는 그 checkpoint가 대표하는 구간 길이. 한 경로의 `represents_miles` 합은 `distance_miles`와 같다.
 - `level_by`는 풍속·강우·강설 각각의 기본 등급, `level`은 최고 등급에 적재 규칙을 적용한 최종 등급, `load_escalated`는 적재 규칙이 등급을 올렸는지.
 - `miles_by_level`을 모두 더하면 `distance_miles`다(반올림 오차 범위 내).
@@ -142,10 +143,10 @@
 
 | HTTP | `code` | 상황 | 추가 필드 |
 |---|---|---|---|
-| 400 | `INVALID_INPUT` | 필드 누락·형식 오류·허용되지 않은 `interval_miles` | `field` |
+| 400 | `INVALID_INPUT` | 필드 누락·형식 오류·허용되지 않은 `interval_miles`·JSON 객체가 아닌 본문·출발지와 도착지가 같은 장소. 잘못된 HTTP 메서드(405)에도 쓴다 | `field` (본문 전체에 대한 오류면 생략) |
 | 400 | `DEPARTURE_IN_PAST` | 출발 시각이 과거 | |
 | 422 | `GEOCODE_NOT_FOUND` | 주소를 좌표로 바꾸지 못함 | `field`(`origin`/`destination`) |
-| 422 | `NO_ROUTE` | TomTom이 경로를 하나도 주지 않음 | |
+| 422 | `NO_ROUTE` | TomTom이 경로를 하나도 주지 않음, 또는 출발·도착 지점이 도로 근처가 아님 | |
 | 422 | `FORECAST_OUT_OF_RANGE` | 필요한 시간이 예보 끝을 넘음 | `forecast_end`(ISO, 예보가 있는 마지막 시각. 알아내지 못하면 생략) |
 | 502 | `ROUTING_UNAVAILABLE` | TomTom 오류·시간 초과 | |
 | 502 | `WEATHER_UNAVAILABLE` | Open-Meteo 오류·시간 초과·`null` 값 | |

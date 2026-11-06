@@ -258,8 +258,8 @@ Spotter Full Stack Developer 과제(`fs-assessment-spotter.pdf`) — **Weather-A
 - [x] 실제 데이터 테스트: `backend/trip/tests/fixtures/tomtom_route_prefix.json`은 기록한 TomTom 경로의 처음 156.6마일(점 2,909개, 안내 지점 26개, 그중 둘은 `pointIndex` 1080을 공유)
 - [x] 예외 규칙: `pointIndex`가 같은 안내 지점은 첫 번째만 쓴다. 첫·마지막 안내 지점은 항상 (0m, 0초)와 (총 길이, 총 시간)으로 고정한다. 거리나 시간이 거꾸로 가는 안내 지점은 거부한다. 안내 지점이 없으면 시간은 거리에 비례한다. 정차(같은 거리, 더 늦은 시간)에서는 checkpoint가 트럭이 **처음 도착하는** 시각을 받는다
 - [x] 변형 검증 (2026-11-06): `sampling.py`를 일부러 틀리게 바꾼 26가지 중 23가지를 잡았다. 나머지 3가지는 동작이 같은 변형이다(정확히 같을 때만 달라지는 `<`/`<=`, 다른 검사가 이미 막는 입력 검사 2개). **실제 결함**도 찾았다: `checkpoint_miles`가 무한대 길이나 아주 작은 간격에서 끝나지 않는 루프에 빠졌다. 지금은 유한하지 않은 값과 `MAX_CHECKPOINTS`(10,000)개 초과를 거부한다. 635개 테스트 통과
-- [ ] 7단계로 넘김: 길이가 0인 경로(출발지 = 도착지)는 `build_checkpoints`가 `ValueError`를 내는데, API 계약에는 아직 이 경우의 오류 코드가 없다. 7단계에서 정한다(`destination`에 대한 `INVALID_INPUT`이 유력)
-- [ ] 7단계로 넘김: 여기서 `mile`, `represents_miles`, 좌표는 반올림하지 않은 실수다. 응답을 만들 때만 반올림한다(ETA는 초 단위)
+- [x] 7단계에서 처리: 출발지 = 도착지는 `destination`에 대한 `INVALID_INPUT`으로 거부한다(약 1 m 이내의 같은 장소, 또는 길이 0인 경로)
+- [x] 7단계에서 처리: `mile`, `represents_miles`, 좌표, 시각은 응답을 만들 때만 반올림한다
 
 ### 5단계. ETA 기준 날씨 조회
 
@@ -284,9 +284,10 @@ Spotter Full Stack Developer 과제(`fs-assessment-spotter.pdf`) — **Weather-A
 
 ### 7단계. 백엔드 통합과 수동 검증
 
-- [ ] 엔드포인트 하나로 3~6단계 통합
-- [ ] 오류 처리: geocoding 실패, 경로 부족, 외부 API 장애
-- [ ] 실제 구간 하나를 골라 등급과 추천 결과를 손으로 계산한 값과 비교
+- [x] `POST /api/analyze`(`backend/trip/`) 뒤에 3~6단계 통합: `validation.py`(요청) → `analysis.py`(양쪽 끝 지오코딩을 병렬로 → TomTom 경로 → 체크포인트 → 모든 경로의 모든 체크포인트를 **한 번의** 날씨 호출로 → 위험 → 요약 → 추천 → 응답). 보조 모듈: `tomtom.py`(지오코딩·트럭 경로, 캐시), `geometry.py`(위험 색상 구간, 약 33 m 허용오차의 Douglas-Peucker 단순화: 89마일 경로가 점 2,000개 → 약 117개), `errors.py`(오류 형식 하나), `views.py`. 재시도 로직은 `http.py`에서 공유한다. `/api/heatmap`은 10단계
+- [x] 오류 처리, 실제 서버로 확인: 없는 주소(422 `GEOCODE_NOT_FOUND`와 필드), 경로 없음(시카고 → 호놀룰루, 422), 같은 장소(400), 과거 출발(400), 예보를 넘는 출발(422, `forecast_end` 포함), 잘못된 간격·시간대 없는 시각·음수 중량·필드 누락·잘못된 JSON·배열 본문·GET(400, 405), TomTom 또는 Open-Meteo 장애(502, 메시지에 URL이나 키 없음). 경로가 3개 미만이면 받은 그대로 보여준다. 경로는 15분 캐시해서, 같은 요청을 다시 보내면(예: 간격만 변경) 4초 대신 25 ms가 걸렸다
+- [x] 실제 경로 하나를 손으로 계산한 값과 비교(2026-11-06): 노스캐롤라이나 롤리 → 버지니아 노퍽, 14:00Z 출발, 42,000 lb, 10마일 체크포인트, 실제 폭우 중. 독립 스크립트(`trip/`을 전혀 import하지 않음)가 TomTom과 Open-Meteo를 직접 호출해 모두 다시 계산했다: 체크포인트 70개의 위치(경로선에서 5 m 이내), ETA(1초 이내), 날씨 값, 등급, 등급별 마일, 평균 위험도, 순위, 제외, `decided_by`. **모든 숫자가 일치했다.** 경로 C에는 실제 No Travel 체크포인트(250마일, 18:00Z, 강우 1.02 in/hr)가 있어 제외됐고, A와 B는 Severe·High 마일이 둘 다 0으로 같아서 평균 위험도로 B가 이겼다(Moderate 20마일 ÷ 206.9마일 = 0.097 → 0.10, A는 20 ÷ 184.6 = 0.108 → 0.11). B가 26분 더 느린데도 그렇다
+- [x] 테스트가 실수를 잡는지 검증(2026-11-06): 새 모듈에 의도적 변형 107개. 첫 실행에서 진짜 공백 12건을 찾았고(경로 캐시가 도착지를 무시, 경도를 위도로 보정하지 않음, 절단 위치를 검증하지 않음 등) 지금은 막았다. 살아남은 것은 원본과 동작이 같다. 테스트 1,148개 통과
 
 ### 8단계. 화면 기본 구성
 
@@ -349,7 +350,7 @@ spotter/
 
 | 용도 | 명령 (디렉터리) |
 |---|---|
-| 백엔드 실행 | `uv run python manage.py runserver` (`backend/`, 포트 8000) |
+| 백엔드 실행 | `uv run python manage.py runserver` (`backend/`, 포트 8000, `POST /api/analyze`) |
 | 백엔드 테스트 | `uv run pytest` (`backend/`, `.env` 불필요) |
 | 백엔드 점검 | `uv run python manage.py check` (`backend/`) |
 | 프론트 실행 | `npm run dev` (`frontend/`, 포트 5173, `/api`는 8000으로 프록시) |

@@ -370,7 +370,7 @@ class TestRetries:
     def test_gives_up_after_three_attempts_with_growing_pauses(self):
         session = FakeSession(lambda p: FakeResponse(429, {"error": True}))
         client, sleeps = make_client(session)
-        with pytest.raises(WeatherUnavailable, match="HTTP 429"):
+        with pytest.raises(WeatherUnavailable, match=r"Open-Meteo is not responding \(HTTP 429\)"):
             client.get_weather_at([q(40.0, -90.0)])
         assert len(session.calls) == 3
         assert sleeps == [1.0, 2.0]

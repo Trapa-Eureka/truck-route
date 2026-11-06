@@ -65,6 +65,8 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [],
     "DEFAULT_PERMISSION_CLASSES": [],
     "UNAUTHENTICATED_USER": None,
+    # Every error, ours and DRF's, has the shape in docs/api-contract.md.
+    "EXCEPTION_HANDLER": "trip.errors.api_exception_handler",
 }
 
 LANGUAGE_CODE = "en-us"

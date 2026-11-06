@@ -258,8 +258,8 @@ The order is: lock the logic down with tests first, then attach the screens. Mar
 - [x] Real-data test: `backend/trip/tests/fixtures/tomtom_route_prefix.json` is the first 156.6 miles of a recorded TomTom route (2,909 points, 26 anchors, two of them sharing `pointIndex` 1080)
 - [x] Edge rules: anchors sharing a `pointIndex` keep the first; the first and last anchors are always pinned to (0 m, 0 s) and (total length, total time); anchors that go backwards in distance or time are rejected; with no anchors, time is proportional to distance. A stop (same distance, later time) gives the checkpoint the time the truck *first arrives*
 - [x] Mutation check (2026-11-06): 26 deliberate mutations of `sampling.py`, 23 caught; the 3 others are behaviourally identical (a `<`/`<=` that differs only on exact equality, and two input checks that another check already covers). It found a **real bug**: `checkpoint_miles` looped for ever for an infinite length or a tiny interval. Now it rejects non-finite values and more than `MAX_CHECKPOINTS` (10,000) checkpoints. 635 tests pass
-- [ ] Left for Step 7: a route of zero length (origin = destination) makes `build_checkpoints` raise `ValueError`, and the API contract has no error code for it yet. Decide there (likely `INVALID_INPUT` on `destination`)
-- [ ] Left for Step 7: `mile`, `represents_miles` and the coordinates are full floats here; round them (and the ETA to the second) only when the response is built
+- [x] Done in Step 7: origin = destination is refused as `INVALID_INPUT` on `destination` (places within about 1 m, or a route of length 0)
+- [x] Done in Step 7: `mile`, `represents_miles`, coordinates and times are rounded only when the response is built
 
 ### Step 5. Weather lookup at ETA
 
@@ -284,9 +284,10 @@ The order is: lock the logic down with tests first, then attach the screens. Mar
 
 ### Step 7. Backend integration and manual verification
 
-- [ ] Integrate Steps 3 to 6 behind the endpoints
-- [ ] Error handling: geocoding failure, too few routes, external API outage
-- [ ] Pick one real route and compare levels and the recommendation with values computed by hand
+- [x] Integrate Steps 3 to 6 behind `POST /api/analyze` (`backend/trip/`): `validation.py` (request) → `analysis.py` (geocode both ends in parallel → TomTom routes → checkpoints → **one** weather call for every checkpoint of every route → risk → summary → recommendation → response) with `tomtom.py` (geocoding, truck routes, cached), `geometry.py` (risk-coloured segments, Douglas-Peucker simplification at about 33 m: 89 miles → about 117 points instead of 2,000), `errors.py` (one error shape) and `views.py`. The shared retry logic is in `http.py`. `/api/heatmap` is Step 10
+- [x] Error handling, checked against the live server: unknown address (422 `GEOCODE_NOT_FOUND` with the field), no route (Chicago → Honolulu, 422), same place (400), past departure (400), departure beyond the forecast (422 with `forecast_end`), bad interval / naive time / negative weight / missing field / invalid JSON / array body / GET (400, 405), TomTom or Open-Meteo down (502, with no URL or key in the message). Fewer than 3 routes are passed on as they are. Routes are cached for 15 minutes, so a repeat (for example another interval) took 25 ms instead of 4 s
+- [x] Compared one real route with values computed by hand (2026-11-06): Raleigh, NC → Norfolk, VA, departure 14:00Z, 42,000 lb, 10-mile checkpoints, during a real rain storm. An independent script (it imports nothing from `trip/`) called TomTom and Open-Meteo itself and recomputed everything: all 70 checkpoints' positions (within 5 m of the route line), ETAs (within 1 s), weather values, levels, miles per level, average risk, ranking, exclusion and `decided_by`. **Every number matched.** Route C had a real No Travel checkpoint (mile 250, 18:00Z, rain 1.02 in/hr) and was excluded; A and B tied on Severe and High miles (both 0), and B won on average risk (20 moderate miles over 206.9 miles = 0.097 → 0.10, against 20 over 184.6 = 0.108 → 0.11) although it is 26 minutes slower
+- [x] Verified the tests catch mistakes (2026-11-06): 107 deliberate mutations of the new modules; the first run found 12 real gaps (the route cache ignored the destination, the longitude was not scaled by latitude, the cut positions were never checked ...), now covered. The survivors behave identically to the original. 1,148 tests pass
 
 ### Step 8. Basic screen layout
 
@@ -349,7 +350,7 @@ spotter/
 
 | Purpose | Command (directory) |
 |---|---|
-| Run backend | `uv run python manage.py runserver` (`backend/`, port 8000) |
+| Run backend | `uv run python manage.py runserver` (`backend/`, port 8000; `POST /api/analyze`) |
 | Backend tests | `uv run pytest` (`backend/`, no `.env` needed) |
 | Backend check | `uv run python manage.py check` (`backend/`) |
 | Run frontend | `npm run dev` (`frontend/`, port 5173, `/api` is proxied to 8000) |

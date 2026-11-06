@@ -37,9 +37,9 @@ Route/checkpoint calculation and the heatmap are independent, so they are **spli
 
 | Field | Format | Rules |
 |---|---|---|
-| `origin`, `destination` | string | Geocoded by the server (`countrySet=US`, first result). Must not be empty |
-| `departure` | ISO 8601 | **Must not be in the past.** If the needed hours run past the end of the forecast, `FORECAST_OUT_OF_RANGE` (see CLAUDE.md section 7) |
-| `load_weight_lb` | number | 0 or more. Used in lb as given for the rules, and converted to kg for TomTom |
+| `origin`, `destination` | string | Geocoded by the server (`countrySet=US`, first result). Not empty, at most 200 characters. If both resolve to the same place the request is refused (`INVALID_INPUT`, `field: destination`) |
+| `departure` | ISO 8601 **with a time zone** | **Must not be in the past**; a departure up to 5 minutes ago is accepted, because a form that says "now" is already a few seconds old when it arrives. A date before 2100 (this only keeps date arithmetic safe; the forecast is the real limit). If the needed hours run past the end of the forecast, `FORECAST_OUT_OF_RANGE` (see CLAUDE.md section 7) |
+| `load_weight_lb` | number | 0 to 1,000,000. Used in lb as given for the rules, and converted to kg for TomTom |
 | `interval_miles` | `10` \| `25` \| `50` | Only these three values are allowed (the frontend fills in 25 as the default) |
 
 ### `POST /api/analyze` response (200)
@@ -94,7 +94,8 @@ Route/checkpoint calculation and the heatmap are independent, so they are **spli
 
 - `routes` holds exactly the **N (1 to 3)** routes TomTom returned. Fewer than 3 is not an error (CLAUDE.md Step 1 policy). The frontend tells the user the count is reduced.
 - `geometry` is the route line **simplified for display**. Distance, time, and mile calculations use TomTom's original points (about 10,000 points per route, CLAUDE.md section 7).
-- `segments` are pieces of `geometry` cut where the risk level changes, for coloring. The boundaries are the **midpoints** between adjacent checkpoints (the same as the miles-per-level definition in CLAUDE.md section 5). Joined together they form `geometry`.
+- `segments` are pieces of `geometry` cut where the risk level changes, for coloring. The boundaries are the **midpoints** between adjacent checkpoints (the same as the miles-per-level definition in CLAUDE.md section 5). Neighbouring stretches with the same level are one segment. Joined together (each shared cut point once) they form `geometry`.
+- **Rounding happens only in the response:** coordinates to 5 decimals (about 1 m), `mile` and `represents_miles` to 2 decimals, times to the second. `weather` values are as the forecast gave them. The summary numbers are the rounded values the recommendation compares.
 - `checkpoints[].mile` is the cumulative miles from the origin, and `represents_miles` is the stretch length that checkpoint stands for. The `represents_miles` of one route sum to `distance_miles`.
 - `level_by` is the base level for each of wind, rain, and snow; `level` is the final level after applying the load rules to the highest of them; `load_escalated` says whether a load rule raised the level.
 - The values in `miles_by_level` add up to `distance_miles` (within rounding error).
@@ -142,10 +143,10 @@ All errors share one format.
 
 | HTTP | `code` | Situation | Extra field |
 |---|---|---|---|
-| 400 | `INVALID_INPUT` | Missing field, wrong format, or a disallowed `interval_miles` | `field` |
+| 400 | `INVALID_INPUT` | Missing field, wrong format, a disallowed `interval_miles`, a body that is not a JSON object, or origin and destination being the same place. Also used for a wrong HTTP method (405) | `field` (omitted when it concerns the whole body) |
 | 400 | `DEPARTURE_IN_PAST` | The departure time is in the past | |
 | 422 | `GEOCODE_NOT_FOUND` | The address could not be turned into coordinates | `field` (`origin`/`destination`) |
-| 422 | `NO_ROUTE` | TomTom returned no route at all | |
+| 422 | `NO_ROUTE` | TomTom returned no route at all, or an end point is not near a road | |
 | 422 | `FORECAST_OUT_OF_RANGE` | The needed hours run past the end of the forecast | `forecast_end` (ISO, the last hour that has a forecast; omitted when it could not be determined) |
 | 502 | `ROUTING_UNAVAILABLE` | TomTom error or timeout | |
 | 502 | `WEATHER_UNAVAILABLE` | Open-Meteo error, timeout, or a `null` value | |
