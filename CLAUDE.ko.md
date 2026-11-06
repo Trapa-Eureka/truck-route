@@ -291,12 +291,14 @@ Spotter Full Stack Developer 과제(`fs-assessment-spotter.pdf`) — **Weather-A
 
 ### 8단계. 화면 기본 구성
 
-- [ ] 레이아웃: 왼쪽 패널(입력 폼, 경로 카드) + 오른쪽 지도
-- [ ] 입력 폼: 출발지, 도착지, 출발 일시, 적재 중량, 샘플링 간격
-- [ ] 지도에 경로 3개 표시 (선택 경로는 진하게, 나머지는 회색)
-- [ ] 경로 카드에 숫자 4개: 심각 마일 / 높음 마일 / 평균 위험 / 소요 시간
-- [ ] 추천 경로 표시와 추천 이유 한 줄
-- [ ] No Travel 경고 배너
+- [x] 레이아웃: 왼쪽 패널(폼, 결과, 경로 카드, 출처 표기) + 오른쪽 지도(`frontend/src/App.tsx`, `index.css`). 너비 820 px 미만에서는 지도가 위, 패널이 아래다. 실제 브라우저에서 확인(개발 서버와 프로덕션 빌드)
+- [x] 입력 폼(`components/AnalysisForm.tsx`): 출발지, 도착지, 출발 일시(`datetime-local`), 적재 중량(lb), 체크포인트 간격 10 / 25 / 50 mi(기본 25). 기본값은 Chicago, IL → Denver, CO, 42,000 lb, 다음 15분 단위 시각이라 검토자가 바로 버튼을 누를 수 있다. 비었거나 잘못된 값은 보내기 전에 잡고, 서버가 특정 필드의 오류로 알려준 것(없는 주소, 과거 출발 등)은 그 필드 아래에, 나머지 오류는 상자에 보여준다. 마지막 요청만 유효하고(이전 요청은 중단), 버튼은 "Analyzing…"으로 바뀌며 최대 10초 걸릴 수 있다고 안내한다
+- [x] 지도의 경로(`components/MapView.tsx`): 선택 경로는 흰 테두리가 있는 굵은 파란색, 나머지는 가는 회색. 지도의 회색 경로나 해당 카드를 누르면 선택된다. 출발지는 초록, 도착지는 빨강 점. 결과가 도착하면 경로 전체로 확대한다(선택만 바뀔 때는 확대하지 않음). 선은 베이스맵 위에 그린다: 라벨 레이어 아래에 두면 베이스맵 도로가 선을 덮었다
+- [x] 경로 카드(`components/RouteCard.tsx`)에 숫자 4개 `Severe mi` / `High mi` / `Avg risk` / `Duration`. 머리줄에는 경로 거리(4개 숫자가 아니라 이름표)와 `Recommended`·`No Travel` 배지도 보이고, 막힌 경로는 점선 테두리다
+- [x] 추천 경로와 이유 한 줄: `lib/reason.ts`가 구조화된 값으로 문장을 만든다. 예: "Lowest average risk (0.10 vs 0.11 on Route A), 26 min slower than Route A." 모든 분기를 단위 테스트했다(심각, 높음, 평균, 시간, 완전 동점, 유일 후보, 추천 없음). 서버가 찾은 장소 이름을 카드 위에 보여주므로 잘못 찾은 주소를 알아볼 수 있다
+- [x] No Travel 경고 배너(`components/NoTravelBanner.tsx`): 막힌 경로 이름과 각 경로의 첫 No Travel 지점(마일과 현지 시각, 적재 규칙 때문이면 "heavy load in strong wind")을 보여주는 큰 빨간 배너. 경로가 3개 미만이면 안내("Only 2 routes available for this trip.")도 보여주고, Open-Meteo CC BY 4.0 출처 표기는 항상 화면에 있다
+- [x] 프론트엔드 테스트(`npm test`, vitest): 시간 변환(현지 시각 → UTC, 시간 되돌림 날짜, 자정), 추천 문장, 경고, API 클라이언트의 오류 처리(네트워크 실패, HTML 오류 페이지, 중단)를 다루는 65개. 이 모듈들에 의도적 변형 36개를 넣어 동작이 같은 1개를 빼고 모두 잡았다(첫 실행에서 진짜 공백 1건, 마일 반올림을 찾아 막았다)
+- [x] 실측(2026-11-06): 출발 시각이 지금과 가까우면 TomTom이 **실시간 교통**을 반영한다. 시카고 → 덴버가 1,184 / 1,212 / 1,338마일로 나왔고(교통 지연 때문에 1,006마일 I-80 경로가 빠짐), 4일 뒤 출발은 1단계와 같은 1,006 / 1,164 / 1,338마일, `traffic=false`는 다시 1단계와 같은 조합이다. 즉 언제 출발하느냐에 따라 경로 구성과 시간이 달라진다. 요청이 잘못된 것이 아니라 TomTom의 실시간 데이터다
 
 ### 9단계. 위험도 표시
 
@@ -345,7 +347,7 @@ spotter/
 │   ├── config/                 # settings(.env 로드), settings_test(pytest용), urls
 │   └── trip/                   # API 앱: 위험 규칙·추천 등 순수 로직 + 뷰, tests/
 └── frontend/                   # Vite + React + TypeScript + maplibre-gl
-    └── src/{components, types}
+    └── src/{components, lib, types}   # lib: API 클라이언트, 포맷, 추천 문장(테스트 있음)
 ```
 
 | 용도 | 명령 (디렉터리) |
@@ -354,7 +356,7 @@ spotter/
 | 백엔드 테스트 | `uv run pytest` (`backend/`, `.env` 불필요) |
 | 백엔드 점검 | `uv run python manage.py check` (`backend/`) |
 | 프론트 실행 | `npm run dev` (`frontend/`, 포트 5173, `/api`는 8000으로 프록시) |
-| 프론트 점검 | `npm run lint`, `npm run build` (`frontend/`) |
+| 프론트 점검 | `npm run lint`, `npm test`, `npm run build` (`frontend/`) |
 
 - 환경변수: 루트 `.env`(서버용 `TOMTOM_API_KEY`, `DJANGO_SECRET_KEY`, `DJANGO_DEBUG`), 프론트용 `frontend/.env.local`(`VITE_TOMTOM_MAP_KEY`, 지도 전용 키). 둘 다 커밋하지 않는다.
 - `VITE_TOMTOM_MAP_KEY`가 빌드 시점에 없으면 지도 코드가 번들에서 빠진다(키가 있을 때 JS 약 1.28MB, gzip 357KB). 배포 빌드에서 반드시 설정한다. 번들 크기는 11단계에서 점검한다(지도 코드 분할 로딩 검토).

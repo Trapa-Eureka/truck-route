@@ -291,12 +291,14 @@ The order is: lock the logic down with tests first, then attach the screens. Mar
 
 ### Step 8. Basic screen layout
 
-- [ ] Layout: left panel (input form, route cards) + map on the right
-- [ ] Input form: origin, destination, departure time, load weight, sampling interval
-- [ ] Show the 3 routes on the map (selected route bold, the others gray)
-- [ ] Route cards with 4 numbers: Severe miles / High miles / average risk / duration
-- [ ] Show the recommended route and a one-line reason
-- [ ] No Travel warning banner
+- [x] Layout: left panel (form, results, route cards, credits) + map on the right (`frontend/src/App.tsx`, `index.css`). Under 820 px wide the map goes on top and the panel below. Checked in a real browser (dev server and the production build)
+- [x] Input form (`components/AnalysisForm.tsx`): From, To, Departure (`datetime-local`), Load weight (lb), checkpoint interval 10 / 25 / 50 mi (default 25). Defaults are Chicago, IL → Denver, CO, 42,000 lb and the next quarter hour, so a reviewer can press the button at once. Missing or invalid values are caught before anything is sent; errors the server reports for a field (unknown address, past departure ...) show under that field, other errors in a box. Only the latest request counts (an older one is aborted), and the button shows "Analyzing…" with a note that it can take up to 10 seconds
+- [x] Routes on the map (`components/MapView.tsx`): the selected route is bold blue with a white outline, the others thin gray; clicking a gray route on the map or its card selects it; green origin and red destination dots; the map zooms to the routes when a result arrives (not when the selection changes). The lines are drawn above the base map: under the first label layer the basemap's roads covered them
+- [x] Route cards (`components/RouteCard.tsx`) with the 4 numbers `Severe mi` / `High mi` / `Avg risk` / `Duration`. The header also shows the route's distance (it is a label, not one of the 4 numbers) and the badges `Recommended` and `No Travel`; a blocked route has a dashed border
+- [x] The recommended route and a one-line reason: `lib/reason.ts` builds the sentence from the structured values, for example "Lowest average risk (0.10 vs 0.11 on Route A), 26 min slower than Route A." All branches are unit-tested (severe, high, average, time, full tie, only candidate, no recommendation). The place names the server resolved are shown above the cards, so a wrong address match is visible
+- [x] No Travel warning banner (`components/NoTravelBanner.tsx`): a large red banner naming the blocked routes and, for each, the first No Travel point (mile and local time, plus "heavy load in strong wind" when the load rule caused it). Also a notice when fewer than 3 routes came back ("Only 2 routes available for this trip."), and the Open-Meteo CC BY 4.0 credit is always on screen
+- [x] Frontend tests (`npm test`, vitest): 65 tests for the time conversions (local time to UTC, the fall-back date, midnight), the reason sentences, the warnings and the API client's error handling (network failure, HTML error page, abort). 36 deliberate mutations of these modules, all caught except one that behaves identically (the first run found one real gap, the mile rounding, now covered)
+- [x] Measured (2026-11-06): with a departure close to now, TomTom uses **live traffic**: Chicago → Denver gave 1,184 / 1,212 / 1,338 miles (the 1,006-mile I-80 route is missing because of traffic delays), while a departure 4 days out gave 1,006 / 1,164 / 1,338 as in Step 1, and `traffic=false` gives the Step 1 set again. So the route set and times depend on when you leave. The request is correct; this is TomTom's real-time data
 
 ### Step 9. Risk display
 
@@ -345,7 +347,7 @@ spotter/
 │   ├── config/                 # settings (loads .env), settings_test (used by pytest), urls
 │   └── trip/                   # API app: pure logic (risk rules, recommendation) + views, tests/
 └── frontend/                   # Vite + React + TypeScript + maplibre-gl
-    └── src/{components, types}
+    └── src/{components, lib, types}   # lib: API client, formatting, recommendation sentence (tested)
 ```
 
 | Purpose | Command (directory) |
@@ -354,7 +356,7 @@ spotter/
 | Backend tests | `uv run pytest` (`backend/`, no `.env` needed) |
 | Backend check | `uv run python manage.py check` (`backend/`) |
 | Run frontend | `npm run dev` (`frontend/`, port 5173, `/api` is proxied to 8000) |
-| Frontend checks | `npm run lint`, `npm run build` (`frontend/`) |
+| Frontend checks | `npm run lint`, `npm test`, `npm run build` (`frontend/`) |
 
 - Environment variables: root `.env` (server-side `TOMTOM_API_KEY`, `DJANGO_SECRET_KEY`, `DJANGO_DEBUG`) and frontend `frontend/.env.local` (`VITE_TOMTOM_MAP_KEY`, the map-only key). Never commit either.
 - If `VITE_TOMTOM_MAP_KEY` is missing at build time, the map code is dropped from the bundle (with the key, JS is about 1.28MB, 357KB gzip). Always set it for the production build. Bundle size is reviewed in Step 11 (consider code-splitting the map).
