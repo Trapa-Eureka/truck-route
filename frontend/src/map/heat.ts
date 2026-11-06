@@ -5,16 +5,22 @@ import { hourProperty } from '../lib/heatmap'
 
 type Expression = unknown[]
 
-/** Colour of a point at slider hour `hour`: the palette entry for the level in property `h<hour>`. */
-export function heatColor(hour: number): Expression {
-  const pairs = RISK_LEVELS.flatMap((level, index) => [index, RISK_COLORS[level]])
-  return ['match', ['get', hourProperty(hour)], ...pairs, RISK_COLORS.low]
+/** The id of the layer that draws slider hour `hour`. */
+export const heatLayerId = (hour: number) => `heat-${hour}`
+
+function rgba(hex: string, alpha: number): string {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
-/** Strength of the shading at slider hour `hour`: faint for Low, stronger as the level rises. */
-export function heatOpacity(hour: number): Expression {
-  const pairs = HEAT_OPACITY.flatMap((opacity, index) => [index, opacity])
-  return ['match', ['get', hourProperty(hour)], ...pairs, HEAT_OPACITY[0]]
+/**
+ * Colour of a point at slider hour `hour`: the palette entry for the level in property `h<hour>`,
+ * with that level's strength (faint for Low, stronger as the level rises) built in as the alpha.
+ * One expression means one style update per slider step instead of two.
+ */
+export function heatColor(hour: number): Expression {
+  const pairs = RISK_LEVELS.flatMap((level, index) => [index, rgba(RISK_COLORS[level], HEAT_OPACITY[index])])
+  return ['match', ['get', hourProperty(hour)], ...pairs, rgba(RISK_COLORS.low, HEAT_OPACITY[0])]
 }
 
 const METERS_PER_DEGREE = 111_195

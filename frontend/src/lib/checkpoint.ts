@@ -2,6 +2,7 @@
 // level is what it is. Used by the map popup and the timeline, so both say the same thing.
 
 import type { Checkpoint, RiskLevel } from '../types/api'
+import { dateTimeFormat } from './format'
 
 /** 0 -> "0", 0.016 -> "0.016", 1.02 -> "1.02". Rain and snow keep three decimals because the
  *  thresholds sit at values like 0.10 and 0.25: rounding 0.095 to "0.10" would look like Moderate. */
@@ -57,12 +58,9 @@ export function checkpointTitle(checkpoint: Checkpoint, isLast: boolean): string
   return mileLabel(checkpoint.mile)
 }
 
+const SHORT_TIME: Intl.DateTimeFormatOptions = { weekday: 'short', hour: 'numeric', minute: '2-digit' }
+
 /** "Fri 2:00 PM": short enough for a list of many checkpoints. Pass a zone for tests. */
 export function formatShortTime(iso: string, timeZone?: string): string {
-  return new Intl.DateTimeFormat('en-US', {
-    weekday: 'short',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZone,
-  }).format(new Date(iso))
+  return dateTimeFormat(SHORT_TIME, timeZone).format(new Date(iso))
 }

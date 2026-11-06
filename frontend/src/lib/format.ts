@@ -44,17 +44,34 @@ export function plural(count: number, singular: string, pluralForm = `${singular
   return `${count} ${count === 1 ? singular : pluralForm}`
 }
 
+const formatters = new Map<string, Intl.DateTimeFormat>()
+
+/**
+ * An Intl.DateTimeFormat for these options, made once and reused. Building one is slow enough to
+ * matter when the forecast slider asks for a few labels on every step.
+ */
+export function dateTimeFormat(options: Intl.DateTimeFormatOptions, timeZone?: string): Intl.DateTimeFormat {
+  const key = `${JSON.stringify(options)}|${timeZone ?? ''}`
+  let formatter = formatters.get(key)
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-US', { ...options, timeZone })
+    formatters.set(key, formatter)
+  }
+  return formatter
+}
+
+const LONG_TIME: Intl.DateTimeFormatOptions = {
+  weekday: 'short',
+  month: 'short',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+  timeZoneName: 'short',
+}
+
 /** "Fri, Nov 6, 2:00 PM CST". Pass a time zone for tests; the default is the browser's. */
 export function formatDateTime(iso: string, timeZone?: string): string {
-  return new Intl.DateTimeFormat('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZoneName: 'short',
-    timeZone,
-  }).format(new Date(iso))
+  return dateTimeFormat(LONG_TIME, timeZone).format(new Date(iso))
 }
 
 /** "Route C", "Routes B and C", "Routes A, B and C". */

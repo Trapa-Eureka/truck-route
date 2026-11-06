@@ -259,3 +259,25 @@ class TestHeatmapView:
 
     def test_get_is_not_allowed(self, client, services):
         assert client.get(self.URL).status_code == 405
+
+
+class TestCompression:
+    def test_a_large_answer_is_gzipped_when_the_browser_accepts_it(self, client, services):
+        import gzip
+
+        response = client.post(URL, payload(), format="json", headers={"Accept-Encoding": "gzip"})
+        assert response.status_code == 200
+        assert response["Content-Encoding"] == "gzip"
+        assert response["Vary"] == "Accept-Encoding"
+        body = gzip.decompress(response.content)
+        assert b'"recommendation"' in body
+        assert len(response.content) < len(body) / 3  # JSON of this shape compresses well
+
+    def test_it_is_not_compressed_for_a_client_that_does_not_ask(self, client, services):
+        response = client.post(URL, payload(), format="json")
+        assert "Content-Encoding" not in response
+        assert response.json()["recommendation"]["route_id"] == "A"
+
+    def test_the_heatmap_is_gzipped_too(self, client, services):
+        response = client.post("/api/heatmap", payload(), format="json", headers={"Accept-Encoding": "gzip"})
+        assert response["Content-Encoding"] == "gzip"

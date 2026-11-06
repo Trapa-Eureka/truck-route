@@ -1,10 +1,10 @@
 import {
   LngLatBounds,
   Map as MapLibreMap,
+  Marker,
   NavigationControl,
   Popup,
   setWorkerUrl,
-  type ExpressionSpecification,
   type GeoJSONSource,
   type MapMouseEvent,
 } from 'maplibre-gl'
@@ -13,8 +13,10 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { useEffect, useRef, useState } from 'react'
 import { heatFeatures } from '../lib/heatmap'
 import { checkpointDots, placeDots, riskSegments, routeLines } from '../map/geo'
-import { heatColor, heatOpacity, heatRadius } from '../map/heat'
-import { addRouteLayers, LAYER, SOURCE } from '../map/layers'
+import { heatLayerId } from '../map/heat'
+import { addHeatLayers, addRouteLayers, LAYER, removeHeatLayers, SOURCE } from '../map/layers'
+import { mapErrorMessage } from '../map/errors'
+import type { CheckpointFocus } from '../map/focus'
 import { checkpointPopupContent } from '../map/popup'
 import type { Coordinate, HeatmapResponse, ResolvedPlace, Route } from '../types/api'
 
@@ -31,12 +33,6 @@ const STYLE_URL = `https://api.tomtom.com/style/1/style/*?map=basic_main&key=${M
 // Continental United States.
 const INITIAL_CENTER: [number, number] = [-98, 39]
 const INITIAL_ZOOM = 3.5
-
-/** The checkpoint to show, and whether the map should move to it (when chosen from the list). */
-export interface CheckpointFocus {
-  index: number
-  fly: boolean
-}
 
 interface Props {
   routes: readonly Route[]
@@ -73,7 +69,11 @@ export default function MapView({
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
   const popupRef = useRef<{ popup: Popup; onClose: () => void } | null>(null)
+  const truckRef = useRef<Marker | null>(null)
+  // How many heat layers exist, and which hour's is showing.
+  const heatLayers = useRef({ count: 0, shown: null as number | null })
   const [ready, setReady] = useState(false)
+  const [problem, setProblem] = useState<string | null>(null)
 
   const selectedRoute = routes.find((route) => route.id === selectedId)
 
@@ -96,7 +96,15 @@ export default function MapView({
     map.addControl(new NavigationControl({ showCompass: false }), 'top-right')
     mapRef.current = map
 
+    // A refused key or a style that never loads leaves a blank map: say so, the results still work.
+    let styleLoaded = false
+    map.on('error', (event) => {
+      const message = mapErrorMessage(event.error, styleLoaded)
+      if (message) setProblem(message)
+    })
+
     map.on('load', () => {
+      styleLoaded = true
       addRouteLayers(map)
 
       map.on('click', LAYER.checkpoints, (event: MapMouseEvent) => {
@@ -121,6 +129,7 @@ export default function MapView({
     return () => {
       mapRef.current = null
       popupRef.current = null
+      truckRef.current = null
       setReady(false)
       map.remove()
     }
@@ -141,34 +150,53 @@ export default function MapView({
     setData(map, SOURCE.places, placeDots(origin, destination))
   }, [ready, origin, destination])
 
-  // Load the whole 48-hour grid into the map once.
+  // Load the whole 48-hour grid into the map once, with one layer per hour.
   useEffect(() => {
     const map = mapRef.current
     if (!ready || !map) return
+    removeHeatLayers(map, heatLayers.current.count)
+    heatLayers.current = { count: 0, shown: null }
     if (heatmap === null) {
       setData(map, SOURCE.heat, { type: 'FeatureCollection', features: [] })
       return
     }
     setData(map, SOURCE.heat, heatFeatures(heatmap) as Parameters<typeof setData>[2])
     const meanLat = heatmap.points.reduce((sum, [, lat]) => sum + lat, 0) / Math.max(1, heatmap.points.length)
-    map.setPaintProperty(LAYER.heat, 'circle-radius', heatRadius(heatmap.spacing_deg, meanLat) as ExpressionSpecification)
+    addHeatLayers(map, heatmap.hours, heatmap.spacing_deg, meanLat)
+    heatLayers.current = { count: heatmap.hours, shown: null }
   }, [ready, heatmap])
 
-  // Moving the slider only changes which property the colour is read from: no data is sent or fetched.
+  // Moving the slider shows one hour's layer and hides the last one: no data is sent or fetched,
+  // and the map does not rebuild any tiles.
   useEffect(() => {
     const map = mapRef.current
-    if (!ready || !map) return
-    map.setPaintProperty(LAYER.heat, 'circle-color', heatColor(hour) as ExpressionSpecification)
-    map.setPaintProperty(LAYER.heat, 'circle-opacity', heatOpacity(hour) as ExpressionSpecification)
-  }, [ready, hour])
+    const state = heatLayers.current
+    if (!ready || !map || state.count === 0 || hour >= state.count) return
+    if (state.shown !== null) map.setPaintProperty(heatLayerId(state.shown), 'circle-opacity', 0)
+    map.setPaintProperty(heatLayerId(hour), 'circle-opacity', 1)
+    state.shown = hour
+  }, [ready, heatmap, hour])
 
+  // The truck is an HTML marker, not a map layer. It moves on every slider step, and updating a
+  // GeoJSON source sends the data to the map's worker and rebuilds its tiles each time (measured:
+  // the largest part of a step on a slow CPU). Moving a marker only changes a CSS transform.
   useEffect(() => {
     const map = mapRef.current
     if (!ready || !map) return
-    setData(map, SOURCE.truck, {
-      type: 'FeatureCollection',
-      features: truck ? [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: truck } }] : [],
-    })
+    if (!truck) {
+      truckRef.current?.remove()
+      truckRef.current = null
+      return
+    }
+    if (!truckRef.current) {
+      const element = document.createElement('div')
+      element.className = 'truck-marker'
+      element.setAttribute('role', 'img')
+      element.setAttribute('aria-label', 'Truck position at the chosen hour')
+      truckRef.current = new Marker({ element }).setLngLat(truck).addTo(map)
+    } else {
+      truckRef.current.setLngLat(truck)
+    }
   }, [ready, truck])
 
   // Zoom to the routes when a new analysis arrives (not when the selection changes).
@@ -218,5 +246,14 @@ export default function MapView({
     )
   }
 
-  return <div ref={containerRef} className="map" />
+  return (
+    <>
+      <div ref={containerRef} className="map" />
+      {problem && (
+        <p className="map-problem" role="alert">
+          {problem}
+        </p>
+      )}
+    </>
+  )
 }

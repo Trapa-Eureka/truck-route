@@ -1,15 +1,19 @@
-import { memo, useCallback, useRef, useState } from 'react'
+import { lazy, memo, Suspense, useCallback, useRef, useState } from 'react'
 import AnalysisForm, { type FieldErrors } from './components/AnalysisForm'
 import CheckpointTimeline from './components/CheckpointTimeline'
 import ForecastSlider from './components/ForecastSlider'
 import Legend from './components/Legend'
-import MapView, { type CheckpointFocus } from './components/MapView'
 import NoTravelBanner from './components/NoTravelBanner'
 import RouteCard from './components/RouteCard'
 import { analyze, ApiRequestError, fetchHeatmap } from './lib/api'
 import { hourTime, truckDescription, truckPosition, type HeatmapStatus } from './lib/heatmap'
 import { fewerRoutesNotice, recommendationReason } from './lib/reason'
+import type { CheckpointFocus } from './map/focus'
 import type { AnalyzeRequest, AnalyzeResponse, Route } from './types/api'
+
+// The map library is about a megabyte. Loading it on demand lets the form appear first, and the
+// map chunk downloads while the person types.
+const MapView = lazy(() => import('./components/MapView'))
 
 // The slider changes `hour` many times a second. These children do not depend on it, so they are
 // kept from re-rendering (the checkpoint list can have over a hundred items).
@@ -113,7 +117,10 @@ export default function App() {
 
         <section className="results" aria-live="polite">
           {status.kind === 'loading' && (
-            <p className="loading">Finding routes and checking the weather along them. This can take up to 10 seconds.</p>
+            <p className="loading">
+              <span className="spinner" aria-hidden="true" />
+              Finding routes and checking the weather along them. This takes 5 to 10 seconds, and up to 30 for a very long trip.
+            </p>
           )}
 
           {status.kind === 'error' && !Object.keys(fieldErrors).length && (
@@ -174,18 +181,20 @@ export default function App() {
       </aside>
 
       <main className="map-area">
-        <MapView
-          routes={routes}
-          selectedId={selectedId}
-          origin={data?.origin ?? null}
-          destination={data?.destination ?? null}
-          focus={focus}
-          heatmap={heatmapData}
-          hour={hour}
-          truck={truck?.position ?? null}
-          onSelectRoute={selectRoute}
-          onSelectCheckpoint={selectCheckpointOnMap}
-        />
+        <Suspense fallback={<p className="map-loading">Loading map…</p>}>
+          <MapView
+            routes={routes}
+            selectedId={selectedId}
+            origin={data?.origin ?? null}
+            destination={data?.destination ?? null}
+            focus={focus}
+            heatmap={heatmapData}
+            hour={hour}
+            truck={truck?.position ?? null}
+            onSelectRoute={selectRoute}
+            onSelectCheckpoint={selectCheckpointOnMap}
+          />
+        </Suspense>
         <ForecastSlider
           status={heatmap}
           hour={hour}

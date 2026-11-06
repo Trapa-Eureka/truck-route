@@ -1,29 +1,32 @@
 import { describe, expect, it } from 'vitest'
 import { HEAT_OPACITY, RISK_COLORS, RISK_LEVELS } from '../lib/risk'
-import { HEAT_RADIUS_SHARE, heatColor, heatOpacity, heatRadius } from './heat'
+import { HEAT_RADIUS_SHARE, heatColor, heatLayerId, heatRadius } from './heat'
 
 describe('heatColor', () => {
+  const rgbaOf = (hex: string, alpha: number) => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`
+  }
+
   it('reads the level from the property of that hour', () => {
     expect(heatColor(7).slice(0, 2)).toEqual(['match', ['get', 'h7']])
     expect(heatColor(0)[1]).toEqual(['get', 'h0'])
     expect(heatColor(48)[1]).toEqual(['get', 'h48'])
   })
 
-  it('maps level 0 to 4 to the palette in order', () => {
+  it('maps level 0 to 4 to the palette colour with that level\'s strength as alpha', () => {
     const expression = heatColor(3)
     RISK_LEVELS.forEach((level, index) => {
       expect(expression[2 + index * 2]).toBe(index)
-      expect(expression[3 + index * 2]).toBe(RISK_COLORS[level])
+      expect(expression[3 + index * 2]).toBe(rgbaOf(RISK_COLORS[level], HEAT_OPACITY[index]))
     })
   })
 
   it('has a fallback (Low) for an unexpected value', () => {
     const expression = heatColor(3)
-    expect(expression[expression.length - 1]).toBe(RISK_COLORS.low)
+    expect(expression[expression.length - 1]).toBe(rgbaOf(RISK_COLORS.low, HEAT_OPACITY[0]))
   })
-})
 
-describe('heatOpacity', () => {
   it('is stronger for higher levels', () => {
     expect([...HEAT_OPACITY]).toEqual([...HEAT_OPACITY].sort((a, b) => a - b))
     expect(new Set(HEAT_OPACITY).size).toBe(5)
@@ -31,13 +34,9 @@ describe('heatOpacity', () => {
     expect(Math.max(...HEAT_OPACITY)).toBeLessThanOrEqual(0.85)
   })
 
-  it('reads the same property and maps every level', () => {
-    const expression = heatOpacity(5)
-    expect(expression[1]).toEqual(['get', 'h5'])
-    HEAT_OPACITY.forEach((opacity, index) => {
-      expect(expression[2 + index * 2]).toBe(index)
-      expect(expression[3 + index * 2]).toBe(opacity)
-    })
+  it('parses each hex colour into its own red, green and blue', () => {
+    expect(heatColor(0)[3]).toBe('rgba(46, 158, 95, 0.16)') // #2e9e5f, Low
+    expect(heatColor(0)[11]).toBe('rgba(75, 29, 92, 0.66)') // #4b1d5c, No Travel
   })
 })
 
@@ -74,5 +73,15 @@ describe('heatRadius', () => {
   it('is bigger in pixels at higher latitudes (a pixel covers less ground)', () => {
     const north = heatRadius(0.5, 60) as unknown[]
     expect(north[4] as number).toBeGreaterThan(r0)
+  })
+})
+
+
+describe('heatLayerId', () => {
+  it('gives every hour its own layer id', () => {
+    const ids = Array.from({ length: 49 }, (_, hour) => heatLayerId(hour))
+    expect(new Set(ids).size).toBe(49)
+    expect(ids[0]).toBe('heat-0')
+    expect(ids[48]).toBe('heat-48')
   })
 })

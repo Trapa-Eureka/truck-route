@@ -225,11 +225,66 @@ button.primary:disabled {
 }
 
 .loading {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
   margin: 0;
   padding: 12px;
   border-radius: 8px;
   background: var(--surface-alt);
   color: var(--muted);
+}
+
+.spinner {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  border: 3px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.truck-marker {
+  width: 20px;
+  height: 20px;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  background: #1a2530;
+  box-shadow: 0 0 0 1px rgba(26, 37, 48, 0.5), 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.map-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  color: var(--muted);
+  background: var(--surface-alt);
+}
+
+.map-problem {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 3;
+  width: min(420px, calc(100% - 48px));
+  transform: translate(-50%, -50%);
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 14px;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.25);
 }
 
 .error-box {
@@ -676,5 +731,8 @@ button.primary:disabled {
   * {
     scroll-behavior: auto !important;
     transition: none !important;
+  }
+  .spinner {
+    animation-duration: 3s; /* still shows that it is working, without the fast spin */
   }
 }

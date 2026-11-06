@@ -9,6 +9,11 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['maplibre-gl'],
   },
+  build: {
+    // maplibre-gl alone is about 1 MB. It is its own chunk, loaded on demand (see App.tsx), so the
+    // default 500 KB warning would only repeat what is known.
+    chunkSizeWarningLimit: 1300,
+  },
   test: {
     include: ['src/**/*.test.ts'],
     // Times the user types are local times; fix the zone so the tests do not depend on the machine.

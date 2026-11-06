@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  dateTimeFormat,
   defaultDeparture,
   departureToIso,
   formatAvgRisk,
@@ -125,5 +126,26 @@ describe('formatAvgRisk', () => {
     expect(formatAvgRisk(0.1)).toBe('0.10')
     expect(formatAvgRisk(0.33)).toBe('0.33')
     expect(formatAvgRisk(2)).toBe('2.00')
+  })
+})
+
+
+describe('dateTimeFormat', () => {
+  const options = { hour: 'numeric', minute: '2-digit' } as const
+
+  it('reuses one formatter for the same options and zone (building one is slow)', () => {
+    expect(dateTimeFormat(options, 'UTC')).toBe(dateTimeFormat(options, 'UTC'))
+    expect(dateTimeFormat(options)).toBe(dateTimeFormat(options))
+  })
+
+  it('does not mix zones or options up', () => {
+    expect(dateTimeFormat(options, 'UTC')).not.toBe(dateTimeFormat(options, 'America/Chicago'))
+    expect(dateTimeFormat(options, 'UTC')).not.toBe(dateTimeFormat({ hour: 'numeric' }, 'UTC'))
+    expect(dateTimeFormat(options, 'UTC').format(new Date('2026-11-09T20:30:00Z'))).toBe('8:30 PM')
+    expect(dateTimeFormat(options, 'America/Chicago').format(new Date('2026-11-09T20:30:00Z'))).toBe('2:30 PM')
+  })
+
+  it('keeps zone and no-zone apart', () => {
+    expect(dateTimeFormat(options)).not.toBe(dateTimeFormat(options, 'UTC'))
   })
 })

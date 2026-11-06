@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "measure": "node scripts/measure-frames.mjs"
   },
   "dependencies": {
     "maplibre-gl": "^6.16.0",
