@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react'
 import AnalysisForm, { type FieldErrors } from './components/AnalysisForm'
-import MapView from './components/MapView'
+import CheckpointTimeline from './components/CheckpointTimeline'
+import Legend from './components/Legend'
+import MapView, { type CheckpointFocus } from './components/MapView'
 import NoTravelBanner from './components/NoTravelBanner'
 import RouteCard from './components/RouteCard'
 import { analyze, ApiRequestError } from './lib/api'
@@ -19,8 +21,14 @@ type Status =
 export default function App() {
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [focus, setFocus] = useState<CheckpointFocus | null>(null)
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
   const pending = useRef<AbortController | null>(null)
+
+  function selectRoute(id: string) {
+    setSelectedId(id)
+    setFocus(null) // a checkpoint belongs to one route
+  }
 
   async function handleSubmit(request: AnalyzeRequest) {
     pending.current?.abort() // only the latest request counts
@@ -29,6 +37,7 @@ export default function App() {
 
     setStatus({ kind: 'loading' })
     setFieldErrors({})
+    setFocus(null)
     try {
       const data = await analyze(request, controller.signal)
       setStatus({ kind: 'done', data })
@@ -45,6 +54,7 @@ export default function App() {
   const data = status.kind === 'done' ? status.data : null
   const routes = data?.routes ?? NO_ROUTES
   const recommendedId = data?.recommendation.route_id ?? null
+  const selectedRoute = routes.find((route) => route.id === selectedId)
   const notice = data ? fewerRoutesNotice(data.routes.length) : null
 
   return (
@@ -93,11 +103,19 @@ export default function App() {
                       route={route}
                       selected={route.id === selectedId}
                       recommended={route.id === recommendedId}
-                      onSelect={setSelectedId}
+                      onSelect={selectRoute}
                     />
                   </li>
                 ))}
               </ul>
+
+              {selectedRoute && (
+                <CheckpointTimeline
+                  route={selectedRoute}
+                  activeIndex={focus?.index ?? null}
+                  onSelect={(index) => setFocus({ index, fly: true })}
+                />
+              )}
             </>
           )}
         </section>
@@ -121,8 +139,11 @@ export default function App() {
           selectedId={selectedId}
           origin={data?.origin ?? null}
           destination={data?.destination ?? null}
-          onSelectRoute={setSelectedId}
+          focus={focus}
+          onSelectRoute={selectRoute}
+          onSelectCheckpoint={(index) => setFocus(index === null ? null : { index, fly: false })}
         />
+        <Legend />
       </main>
     </div>
   )

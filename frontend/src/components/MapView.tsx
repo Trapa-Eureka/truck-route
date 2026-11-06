@@ -2,14 +2,17 @@ import {
   LngLatBounds,
   Map as MapLibreMap,
   NavigationControl,
+  Popup,
   setWorkerUrl,
   type GeoJSONSource,
-  type LineLayerSpecification,
   type MapMouseEvent,
 } from 'maplibre-gl'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { useEffect, useRef, useState } from 'react'
+import { checkpointDots, placeDots, riskSegments, routeLines } from '../map/geo'
+import { addRouteLayers, LAYER, SOURCE } from '../map/layers'
+import { checkpointPopupContent } from '../map/popup'
 import type { ResolvedPlace, Route } from '../types/api'
 
 // MapLibre finds its worker with new URL('./maplibre-gl-worker.mjs', import.meta.url). In a
@@ -26,57 +29,50 @@ const STYLE_URL = `https://api.tomtom.com/style/1/style/*?map=basic_main&key=${M
 const INITIAL_CENTER: [number, number] = [-98, 39]
 const INITIAL_ZOOM = 3.5
 
-const ROUTES_SOURCE = 'routes'
-const PLACES_SOURCE = 'places'
-const SELECTED_COLOR = '#1a5fd0'
-const OTHER_COLOR = '#8a949e'
+/** The checkpoint to show, and whether the map should move to it (when chosen from the list). */
+export interface CheckpointFocus {
+  index: number
+  fly: boolean
+}
 
 interface Props {
   routes: readonly Route[]
   selectedId: string | null
   origin: ResolvedPlace | null
   destination: ResolvedPlace | null
+  focus: CheckpointFocus | null
   onSelectRoute: (id: string) => void
+  /** A checkpoint dot was clicked (index) or its popup was closed (null). */
+  onSelectCheckpoint: (index: number | null) => void
 }
 
-function routeFeatures(routes: readonly Route[], selectedId: string | null) {
-  return {
-    type: 'FeatureCollection' as const,
-    features: routes.map((route) => ({
-      type: 'Feature' as const,
-      properties: { id: route.id, selected: route.id === selectedId },
-      geometry: { type: 'LineString' as const, coordinates: route.geometry },
-    })),
-  }
+function setData(map: MapLibreMap, source: string, data: Parameters<GeoJSONSource['setData']>[0]) {
+  ;(map.getSource(source) as GeoJSONSource).setData(data)
 }
 
-function placeFeatures(origin: ResolvedPlace | null, destination: ResolvedPlace | null) {
-  const places = [
-    origin && { kind: 'origin', place: origin },
-    destination && { kind: 'destination', place: destination },
-  ].filter((entry) => entry !== null)
-  return {
-    type: 'FeatureCollection' as const,
-    features: places.map(({ kind, place }) => ({
-      type: 'Feature' as const,
-      properties: { kind },
-      geometry: { type: 'Point' as const, coordinates: [place.lon, place.lat] },
-    })),
-  }
-}
-
-export default function MapView({ routes, selectedId, origin, destination, onSelectRoute }: Props) {
+export default function MapView({
+  routes,
+  selectedId,
+  origin,
+  destination,
+  focus,
+  onSelectRoute,
+  onSelectCheckpoint,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
+  const popupRef = useRef<{ popup: Popup; onClose: () => void } | null>(null)
   const [ready, setReady] = useState(false)
 
-  // The click handler is registered once; this keeps it calling the latest callback.
-  const onSelectRef = useRef(onSelectRoute)
-  useEffect(() => {
-    onSelectRef.current = onSelectRoute
-  }, [onSelectRoute])
+  const selectedRoute = routes.find((route) => route.id === selectedId)
 
-  // Create the map once and add the (empty) route and place layers.
+  // The click handlers are registered once; this keeps them calling the latest callbacks.
+  const callbacks = useRef({ onSelectRoute, onSelectCheckpoint })
+  useEffect(() => {
+    callbacks.current = { onSelectRoute, onSelectCheckpoint }
+  }, [onSelectRoute, onSelectCheckpoint])
+
+  // Create the map once and add the (empty) sources and layers.
   useEffect(() => {
     if (!MAP_KEY || !containerRef.current) return
 
@@ -90,73 +86,30 @@ export default function MapView({ routes, selectedId, origin, destination, onSel
     mapRef.current = map
 
     map.on('load', () => {
-      map.addSource(ROUTES_SOURCE, { type: 'geojson', data: routeFeatures([], null) })
-      map.addSource(PLACES_SOURCE, { type: 'geojson', data: placeFeatures(null, null) })
+      addRouteLayers(map)
 
-      // The selected route is drawn last, so it sits on top of the gray ones.
-      const lineLayout: LineLayerSpecification['layout'] = {
-        'line-join': 'round',
-        'line-cap': 'round',
-        'line-sort-key': ['case', ['get', 'selected'], 1, 0],
-      }
-
-      // Wide invisible line: makes thin gray routes easy to click.
-      map.addLayer(
-        {
-          id: 'routes-hit',
-          type: 'line',
-          source: ROUTES_SOURCE,
-          layout: lineLayout,
-          paint: { 'line-width': 18, 'line-opacity': 0 },
-        },
-      )
-      map.addLayer(
-        {
-          id: 'routes-casing',
-          type: 'line',
-          source: ROUTES_SOURCE,
-          layout: lineLayout,
-          paint: { 'line-color': '#ffffff', 'line-width': ['case', ['get', 'selected'], 11, 7], 'line-opacity': 0.95 },
-        },
-      )
-      map.addLayer(
-        {
-          id: 'routes-line',
-          type: 'line',
-          source: ROUTES_SOURCE,
-          layout: lineLayout,
-          paint: {
-            'line-color': ['case', ['get', 'selected'], SELECTED_COLOR, OTHER_COLOR],
-            'line-width': ['case', ['get', 'selected'], 7, 4],
-          },
-        },
-      )
-      map.addLayer({
-        id: 'places',
-        type: 'circle',
-        source: PLACES_SOURCE,
-        paint: {
-          'circle-radius': 8,
-          'circle-color': ['match', ['get', 'kind'], 'origin', '#1f8f4d', '#c23b2b'],
-          'circle-stroke-color': '#ffffff',
-          'circle-stroke-width': 3,
-        },
+      map.on('click', LAYER.checkpoints, (event: MapMouseEvent) => {
+        const index = map.queryRenderedFeatures(event.point, { layers: [LAYER.checkpoints] })[0]?.properties?.index
+        if (typeof index === 'number') callbacks.current.onSelectCheckpoint(index)
       })
-
-      map.on('click', 'routes-hit', (event: MapMouseEvent) => {
+      map.on('click', LAYER.routeHit, (event: MapMouseEvent) => {
+        // A click on a checkpoint dot is not a click on the route underneath it.
+        if (map.queryRenderedFeatures(event.point, { layers: [LAYER.checkpoints] }).length > 0) return
         // Features come back topmost first, and the selected route is drawn on top.
-        const hits = map.queryRenderedFeatures(event.point, { layers: ['routes-hit'] })
-        const id = hits[0]?.properties?.id
-        if (typeof id === 'string') onSelectRef.current(id)
+        const id = map.queryRenderedFeatures(event.point, { layers: [LAYER.routeHit] })[0]?.properties?.id
+        if (typeof id === 'string') callbacks.current.onSelectRoute(id)
       })
-      map.on('mouseenter', 'routes-hit', () => (map.getCanvas().style.cursor = 'pointer'))
-      map.on('mouseleave', 'routes-hit', () => (map.getCanvas().style.cursor = ''))
+      for (const layer of [LAYER.checkpoints, LAYER.routeHit]) {
+        map.on('mouseenter', layer, () => (map.getCanvas().style.cursor = 'pointer'))
+        map.on('mouseleave', layer, () => (map.getCanvas().style.cursor = ''))
+      }
 
       setReady(true)
     })
 
     return () => {
       mapRef.current = null
+      popupRef.current = null
       setReady(false)
       map.remove()
     }
@@ -166,13 +119,15 @@ export default function MapView({ routes, selectedId, origin, destination, onSel
   useEffect(() => {
     const map = mapRef.current
     if (!ready || !map) return
-    ;(map.getSource(ROUTES_SOURCE) as GeoJSONSource).setData(routeFeatures(routes, selectedId))
-  }, [ready, routes, selectedId])
+    setData(map, SOURCE.routes, routeLines(routes, selectedId))
+    setData(map, SOURCE.risk, riskSegments(selectedRoute))
+    setData(map, SOURCE.checkpoints, checkpointDots(selectedRoute))
+  }, [ready, routes, selectedId, selectedRoute])
 
   useEffect(() => {
     const map = mapRef.current
     if (!ready || !map) return
-    ;(map.getSource(PLACES_SOURCE) as GeoJSONSource).setData(placeFeatures(origin, destination))
+    setData(map, SOURCE.places, placeDots(origin, destination))
   }, [ready, origin, destination])
 
   // Zoom to the routes when a new analysis arrives (not when the selection changes).
@@ -183,6 +138,36 @@ export default function MapView({ routes, selectedId, origin, destination, onSel
     for (const route of routes) for (const point of route.geometry) bounds.extend(point)
     map.fitBounds(bounds, { padding: 64, maxZoom: 12, duration: 700 })
   }, [ready, routes])
+
+  // Show the popup and the ring for the focused checkpoint.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!ready || !map) return
+
+    if (popupRef.current) {
+      // Removing a popup fires 'close'; detach first so replacing it is not read as "the user closed it".
+      popupRef.current.popup.off('close', popupRef.current.onClose)
+      popupRef.current.popup.remove()
+      popupRef.current = null
+    }
+
+    const checkpoint = focus && selectedRoute?.checkpoints.find((c) => c.index === focus.index)
+    map.setFilter(LAYER.checkpointActive, ['==', ['get', 'index'], checkpoint ? checkpoint.index : -1])
+    if (!focus || !selectedRoute || !checkpoint) return
+
+    const isLast = checkpoint === selectedRoute.checkpoints[selectedRoute.checkpoints.length - 1]
+    const onClose = () => callbacks.current.onSelectCheckpoint(null)
+    const popup = new Popup({ closeOnClick: false, maxWidth: '300px', offset: 14 })
+      .setLngLat([checkpoint.lon, checkpoint.lat])
+      .setDOMContent(checkpointPopupContent(checkpoint, isLast))
+      .addTo(map)
+    popup.on('close', onClose)
+    popupRef.current = { popup, onClose }
+
+    if (focus.fly) {
+      map.easeTo({ center: [checkpoint.lon, checkpoint.lat], zoom: Math.max(map.getZoom(), 8), duration: 600 })
+    }
+  }, [ready, focus, selectedRoute])
 
   if (!MAP_KEY) {
     return (

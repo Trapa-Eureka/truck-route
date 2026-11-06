@@ -302,10 +302,11 @@ The order is: lock the logic down with tests first, then attach the screens. Mar
 
 ### Step 9. Risk display
 
-- [ ] Draw the route line in risk-colored stretches
-- [ ] Always-visible legend
-- [ ] Checkpoint markers: ETA, weather at that time, risk level
-- [ ] Checkpoint list (timeline)
+- [x] The route line in risk-colored stretches: the selected route is drawn from the API's `segments`, one color per level (`map/layers.ts`, `map/geo.ts`); the other routes stay gray. One palette (`lib/risk.ts`: green, yellow, orange, red, dark purple) serves the line, the dots, the legend and, in Step 10, the heatmap. The steps differ in lightness as well as hue, so the order survives for people who cannot tell red from green, and a unit test checks that the colors are distinct and get darker from Moderate up. Butt line caps, so one level ends exactly where the next begins
+- [x] Always-visible legend (`components/Legend.tsx`): the five levels with the PDF's names plus "Other routes", on the map's bottom-left corner whether or not a route is shown
+- [x] Checkpoint markers: a dot on the selected route at every checkpoint, colored by its level. Clicking one opens a popup with the arrival time, wind / rain / snow with the level each gives, the final level, and, when a load rule raised the level, which rule (`map/popup.ts`, `lib/checkpoint.ts`: "Load over 30,000 lb with wind of 45-54 mph" or "Load over 40,000 lb with wind of 35-44 mph", told apart by the final level). Rain and snow are shown with up to 3 decimals so a Low 0.095 never reads as 0.10. A click on a dot is not a click on the route under it
+- [x] Checkpoint list (timeline) (`components/CheckpointTimeline.tsx`): the selected route's checkpoints in driving order with mile, level, arrival time (your time zone, stated above the list) and the weather line; Severe and No Travel are in red. It is linked both ways with the map: choosing a list item moves the map there and opens the popup; clicking a dot highlights and scrolls to its list item; closing the popup clears the highlight; choosing another route clears it
+- [x] Checked in a real browser (2026-11-06, Raleigh → Norfolk during a real rain storm, dev server and production build): green line with a yellow Moderate stretch for Route B, and a dark-purple No Travel stretch on Route C whose popup shows rain 1.02 in/hr. Unit tests for the checkpoint text, the palette and the map data (35 more, 100 in all, then 28 deliberate mutations, all caught)
 
 ### Step 10. Heatmap and 0–48 hour slider
 

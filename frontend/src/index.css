@@ -376,6 +376,230 @@ button.primary:disabled {
   color: var(--muted);
 }
 
+/* ---------- legend (on the map) ---------- */
+
+.legend {
+  position: absolute;
+  left: 12px;
+  bottom: 28px;
+  z-index: 2;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.25);
+  font-size: 13px;
+}
+
+.legend-title {
+  margin: 0 0 6px;
+  font-weight: 700;
+}
+
+.legend ul {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.legend li,
+.cp-level {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.swatch {
+  display: inline-block;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(26, 37, 48, 0.35);
+}
+
+/* ---------- checkpoint timeline ---------- */
+
+.timeline h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.timeline .hint {
+  margin: 2px 0 8px;
+}
+
+.timeline ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.timeline li {
+  position: relative;
+}
+
+/* The vertical line that joins the dots. */
+.timeline li::before {
+  content: '';
+  position: absolute;
+  left: 15px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--line);
+}
+
+.timeline li:first-child::before {
+  top: 20px;
+}
+
+.timeline li:last-child::before {
+  bottom: calc(100% - 20px);
+}
+
+.timeline-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 32px 1fr;
+  width: 100%;
+  padding: 6px 8px 6px 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.timeline-item:hover,
+.timeline-item.active {
+  background: var(--surface-alt);
+}
+
+.timeline-item.active {
+  box-shadow: inset 0 0 0 2px var(--text);
+}
+
+.timeline-dot {
+  grid-row: 1 / span 3;
+  justify-self: center;
+  align-self: start;
+  width: 14px;
+  height: 14px;
+  margin-top: 4px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(26, 37, 48, 0.35);
+}
+
+.timeline-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.timeline-title {
+  font-weight: 700;
+}
+
+.timeline-level {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.timeline-level.serious {
+  color: var(--danger);
+}
+
+.timeline-time {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.timeline-weather {
+  grid-column: 2;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.timeline-note {
+  grid-column: 2;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--danger);
+}
+
+/* ---------- checkpoint popup (on the map) ---------- */
+
+.cp-popup {
+  min-width: 220px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.cp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-right: 14px;
+}
+
+.cp-title {
+  font-size: 15px;
+}
+
+.cp-level {
+  font-weight: 700;
+}
+
+.cp-time {
+  margin: 4px 0 8px;
+  color: var(--muted);
+}
+
+.cp-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cp-rows li {
+  display: grid;
+  grid-template-columns: 44px 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.cp-row-label {
+  color: var(--muted);
+}
+
+.cp-row-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.cp-rows .cp-level {
+  font-weight: 400;
+  font-size: 12px;
+}
+
+.cp-note {
+  margin: 8px 0 0;
+  font-weight: 600;
+  color: var(--danger);
+}
+
 .credits {
   margin-top: auto;
   padding-top: 8px;
