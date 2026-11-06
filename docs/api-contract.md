@@ -146,7 +146,7 @@ All errors share one format.
 | 400 | `DEPARTURE_IN_PAST` | The departure time is in the past | |
 | 422 | `GEOCODE_NOT_FOUND` | The address could not be turned into coordinates | `field` (`origin`/`destination`) |
 | 422 | `NO_ROUTE` | TomTom returned no route at all | |
-| 422 | `FORECAST_OUT_OF_RANGE` | The needed hours run past the end of the forecast | `forecast_end` (ISO) |
+| 422 | `FORECAST_OUT_OF_RANGE` | The needed hours run past the end of the forecast | `forecast_end` (ISO, the last hour that has a forecast; omitted when it could not be determined) |
 | 502 | `ROUTING_UNAVAILABLE` | TomTom error or timeout | |
 | 502 | `WEATHER_UNAVAILABLE` | Open-Meteo error, timeout, or a `null` value | |
 

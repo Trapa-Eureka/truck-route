@@ -117,16 +117,20 @@ Apply the priorities below as a **lexicographic comparison**: look at the next c
     - **Time window:** do not use `forecast_hours=48` because it means "from now". For a window anchored at departure use `start_hour` / `end_hour` (e.g. `start_hour=2026-11-09T12:00&end_hour=2026-11-11T12:00`). Use `timezone=UTC` everywhere.
     - **Forecast range:** `start_date` goes up to about +15 days from today (2026-11-21 as of 2026-11-06), and beyond that returns HTTP 400. Measured over the full 16 days at 2 locations: `null` appeared **only in the last 5 hours of the final day (+15 days)** and 0 times in the 15 days before. So `null` means hours past the end of the forecast, not degraded quality.
     - Treat `null` and out-of-range values as errors, never as 0. The error message says "The forecast is available until <last available time>."
+    - **Two ways to run past the end (measured 2026-11-06):** (a) HTTP 400 `Parameter 'start_hour' (or 'end_hour') is out of allowed range from 2026-08-05 to 2026-11-21` (the last forecast *day*, no time), or (b) HTTP 200 with `null` from 19:00 UTC on the last day. Both become `FORECAST_OUT_OF_RANGE`. For (a) the last good hour is found with one extra one-location call (error path only); if that fails the error is still sent without `forecast_end`.
+    - **Response facts:** one location answers with an object and several with a list. The wind unit label is `mp/h` (not `mph`), so the code checks the unit labels it receives and refuses anything else. Rain and snow values have 3 decimals.
     - **Departure validation:** the PDF sets no departure range, so **do not impose an arbitrary upper limit (e.g. +7 days).** There are only two rejection conditions. (1) The departure is in the past (TomTom accepts a past `departAt` without error, so the app must block it). (2) The needed hours (last checkpoint ETA, departure + 48 hours) run past the end of the forecast, detected from `null` / out-of-range in the response.
     - **Heatmap grid `[Decision]`:** 0.5° spacing (about 34 miles) with a 40-mile buffer on each side of the union of the 3 routes. For Chicago→Denver (routes of 1,004 / 1,163 / 1,336 miles) that is **278 points**. A 0.25° grid is 570 to 1,116 points and does not fit the limit, so it is not used. Variables are `wind_speed_10m`, `rain`, `showers`, `snowfall`; the window is departure to +48 hours (hours 0 to 48, 49 values).
     - **Checkpoint weather:** fetched separately from the heatmap, directly at the checkpoint coordinates (rounded to 2 decimals). Checkpoint counts (3 routes, deduplicated): 351 at 10 miles / 141 at 25 miles / 71 at 50 miles.
+    - `[Interpretation]` **Which hour:** a checkpoint uses the forecast for the **hour nearest to its ETA** (a time exactly on :30 goes to the later hour). The forecast comes in whole hours and the heatmap slider shows whole hours too, so a checkpoint and the heatmap show the same forecast. Wind is the instantaneous value at that hour; rain and snow are the sums of the *preceding* hour (in/hr).
+    - `[Interpretation]` `rain + showers` is rounded to 4 decimals, because a float sum such as 0.09 + 0.01 = 0.09999999999999999 would fall under the 0.10 boundary.
     - **Cost of one analysis (Chicago→Denver):** 25-mile interval 141 + 278 = **419 calls** (about 23 analyses/day), 10-mile interval 351 + 278 = **629 calls** (about 15/day). The cache key is (rounded coordinates, window start) with a TTL of about 1 hour. Load weight does not affect weather, so re-analyzing with only a different weight must not call the weather API again.
   - TomTom call spec `[Decision]` (confirmed with real calls on 2026-11-06):
     - Route: `GET /routing/1/calculateRoute/{lat,lon}:{lat,lon}/json` + `travelMode=truck`, `vehicleCommercial=true`, `vehicleWeight=<kg>`, `maxAlternatives=2`, `departAt=<departure>`, `instructionsType=coded`
     - Geocode: `GET /search/2/geocode/{address}.json` + `countrySet=US`, `limit=1`
     - The app's load input is in lb, so convert to kg for TomTom (× 0.45359237). Risk and load rules use the lb value as entered.
     - The route line is `routes[].legs[].points[]` (latitude and longitude only, no time). One Chicago→Denver route is about 10,000 points.
-    - `[Interpretation]` ETA: use (`pointIndex`, `routeOffsetInMeters`, `travelTimeInSeconds`) from `guidance.instructions[]` as anchor points and interpolate time between anchors by distance along the route line. The error of this method is verified in Step 4.
+    - `[Interpretation]` ETA: use (`pointIndex`, `routeOffsetInMeters`, `travelTimeInSeconds`) from `guidance.instructions[]` as anchor points and interpolate time between anchors by distance along the route line. Verified in Step 4: median error 0.1 min, at most 3.7 min over a 14 hour trip (see the Step 4 checklist).
     - Risk: response size about 1.8MB and response time 6–10 seconds (3 routes, long distance). Per-request caching and a loading state are needed.
   - TomTom key: **confirmed in the dashboard that one key provides both Routing API and Geocoding API** (2026-11-06, Billing Type "Evaluation"). Whether Evaluation has a time limit is unknown, so check the expiry terms in the dashboard. The key is used only on the server (`.env`) and never exposed to the frontend.
   - Map background `[Decision]`: **TomTom Vector Tiles + MapLibre.** Dashboard limits (2026-11-06): Map Display Vector Tiles 200,000, Raster Tiles 200,000, Raster Non-tile 20,000. These are separate from routing/geocoding (20,000 each), and the dashboard shows no period. Raster is not used.
@@ -244,20 +248,28 @@ The order is: lock the logic down with tests first, then attach the screens. Mar
 
 ### Step 4. Route sampling and ETA
 
-- [ ] Create checkpoints: origin (mile 0), every interval (10/25/50 miles), destination
-- [ ] ETA = departure time + cumulative travel time to that point
-- [ ] Handle time zones explicitly
-- [ ] Compute the miles each checkpoint represents (to the midpoints with its neighbors)
-- [ ] Test: sum of represented miles = total route distance
-- [ ] Test: routes shorter than the interval and routes not divisible by the interval
+- [x] Create checkpoints: origin (mile 0), every interval (10/25/50 miles), destination: `checkpoint_miles()` and `build_checkpoints()` in `backend/trip/sampling.py` (pure functions). A destination exactly on an interval is not listed twice (a 1e-6 mile tolerance absorbs float noise)
+- [x] ETA = departure time + cumulative travel time to that point: time is known only at TomTom's guidance anchors and is interpolated by distance between them. Measured on the 3 real Chicago→Denver routes by leaving one anchor out and predicting it from its neighbours: median 0.1 min, at most 3.7 min over a 14 hour trip (a single average speed over the whole route is off by up to 43 min)
+- [x] Handle time zones explicitly: `departure` must be timezone-aware (a naive datetime raises `ValueError`) and ETAs are returned in UTC, rounded to the second. Tested with CST/MST/Seoul offsets and across midnight and the 2026-11-01 US fall-back date
+- [x] Compute the miles each checkpoint represents (to the midpoints with its neighbors): `represented_miles()`; the first checkpoint starts at mile 0 and the last ends at the destination
+- [x] Distance along the route: the polyline holds only coordinates and its haversine length is about 0.2% short of TomTom's (up to 3.3 km on a 1,000 mile route), so the distance is stretched piecewise between anchors until it equals each anchor's TomTom distance exactly. A checkpoint placed at an anchor's distance lands exactly on that anchor's point
+- [x] Test: sum of represented miles = total route distance (uniform, profiled, real and 25 random routes)
+- [x] Test: routes shorter than the interval and routes not divisible by the interval (8 mi, 25 mi, 25.5 mi, 101 mi and more, at 10/25/50)
+- [x] Real-data test: `backend/trip/tests/fixtures/tomtom_route_prefix.json` is the first 156.6 miles of a recorded TomTom route (2,909 points, 26 anchors, two of them sharing `pointIndex` 1080)
+- [x] Edge rules: anchors sharing a `pointIndex` keep the first; the first and last anchors are always pinned to (0 m, 0 s) and (total length, total time); anchors that go backwards in distance or time are rejected; with no anchors, time is proportional to distance. A stop (same distance, later time) gives the checkpoint the time the truck *first arrives*
+- [x] Mutation check (2026-11-06): 26 deliberate mutations of `sampling.py`, 23 caught; the 3 others are behaviourally identical (a `<`/`<=` that differs only on exact equality, and two input checks that another check already covers). It found a **real bug**: `checkpoint_miles` looped for ever for an infinite length or a tiny interval. Now it rejects non-finite values and more than `MAX_CHECKPOINTS` (10,000) checkpoints. 635 tests pass
+- [ ] Left for Step 7: a route of zero length (origin = destination) makes `build_checkpoints` raise `ValueError`, and the API contract has no error code for it yet. Decide there (likely `INVALID_INPUT` on `destination`)
+- [ ] Left for Step 7: `mile`, `represents_miles` and the coordinates are full floats here; round them (and the ETA to the second) only when the response is built
 
 ### Step 5. Weather lookup at ETA
 
-- [ ] Fetch the forecast for each checkpoint's ETA time (not current weather)
-- [ ] Unit conversion: mph, in/hr
-- [ ] Batch fetch and cache 48 hours of data
-- [ ] Return an error when the ETA is outside the forecast range
-- [ ] Test: unit conversion, matching ETA time to forecast time
+- [x] Fetch the forecast for each checkpoint's ETA time (not current weather): `WeatherClient.get_weather_at()` in `backend/trip/weather_client.py` takes (lat, lon, ETA) and returns wind / rain / snow in the order given. The ETA is matched to the nearest forecast hour (`nearest_hour()` in `weather.py`)
+- [x] Unit conversion: Open-Meteo is asked for `mph` and `inch` directly, and the response's unit labels are checked (a mismatch such as `km/h` is refused). rain = `rain + showers`, snow = `snowfall`. The label for mph is `mp/h`
+- [x] Batch fetch and cache: requests of at most 200 locations (run in parallel, up to 4 at once), each asking only for the hours it needs; the same (position, hour) is fetched once; every good hour of an answer is cached for 1 hour (Django cache, 50,000 entries). Measured live: 230 locations = 2 requests in 1.4 s, a repeat = 0 requests. The same departure with a different load weight makes no weather call. (The 48-hour grid for the heatmap is Step 10)
+- [x] Error when the ETA is outside the forecast range: `ForecastOutOfRange` (HTTP 400 or `null` hours at the end of the forecast, with `forecast_end` when it can be found) → `FORECAST_OUT_OF_RANGE`; any other failure (timeout, 429/5xx after 3 attempts, bad data, a `null` in the middle) → `WeatherUnavailable` → `WEATHER_UNAVAILABLE`. A missing value is never replaced by 0, and one bad location fails the whole call
+- [x] Test: unit conversion, matching ETA time to forecast time (`backend/trip/tests/test_weather.py`, `test_weather_client.py`): :29/:30 rounding, other time zones, midnight and the US fall-back date; the request parameters; order of results; dedupe; batching at 200/201; cache hits/misses; retries; both out-of-range forms; units; garbage values
+- [x] Verified the tests catch mistakes (2026-11-06): 59 deliberate mutations of `weather.py` and `weather_client.py`. The first run found 3 real gaps (a response with *more* locations than requested was accepted; a cache key without latitude or longitude would return another place's weather), now covered; 4 survivors behave identically to the original. 784 tests pass
+- [x] Checked against the live API (2026-11-06): a recorded Chicago route (8 checkpoints) went through sampling → weather → risk. The values match a direct API call for the same hour. A departure past the forecast gives `FORECAST_OUT_OF_RANGE` with `forecast_end` 2026-11-21 18:00Z in both forms
 
 ### Step 6. Route summary and recommendation
 
@@ -343,6 +355,7 @@ spotter/
 
 - Environment variables: root `.env` (server-side `TOMTOM_API_KEY`, `DJANGO_SECRET_KEY`, `DJANGO_DEBUG`) and frontend `frontend/.env.local` (`VITE_TOMTOM_MAP_KEY`, the map-only key). Never commit either.
 - If `VITE_TOMTOM_MAP_KEY` is missing at build time, the map code is dropped from the bundle (with the key, JS is about 1.28MB, 357KB gzip). Always set it for the production build. Bundle size is reviewed in Step 11 (consider code-splitting the map).
+- When mutation-testing, delete `__pycache__` and run Python with `-B`: a stale `.pyc` (same file size and modification second as the previous mutant) once made a mutant look "caught" when it was not.
 - The system has a broken `black`, so `django-admin startproject` prints a `Bad CPU type` error, but the files are created correctly (ignore it).
 
 ### Known MapLibre 6 + Vite pitfalls (2026-11-06, all fixed, do not revert)

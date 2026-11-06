@@ -49,11 +49,13 @@ WSGI_APPLICATION = "config.wsgi.application"
 # The API is stateless: no models, no users, no sessions.
 DATABASES: dict = {}
 
-# Weather responses are cached here (see CLAUDE.md section 7).
+# Weather responses are cached here (see CLAUDE.md section 7). LocMem keeps only 300 entries by
+# default; one 10-mile analysis alone caches about 350 locations x several hours.
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
         "LOCATION": "spotter-default",
+        "OPTIONS": {"MAX_ENTRIES": 50_000},
     }
 }
 

@@ -123,7 +123,7 @@ export interface ApiError {
     code: ApiErrorCode
     message: string
     field?: 'origin' | 'destination' | 'departure' | 'load_weight_lb' | 'interval_miles'
-    /** ISO 8601, only for FORECAST_OUT_OF_RANGE. */
+    /** ISO 8601, only for FORECAST_OUT_OF_RANGE: the last hour with a forecast (omitted when unknown). */
     forecast_end?: string
   }
 }

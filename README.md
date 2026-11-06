@@ -67,6 +67,8 @@ Where the assignment document is silent, these choices were made.
 **Weather forecast**
 
 - Weather is forecast-based, not real-time. Each checkpoint's weather is looked up for the truck's estimated arrival time.
+- A checkpoint uses the forecast for the **hour nearest to its estimated arrival** (exactly on the half hour goes to the later hour). Wind is the value at that hour; rain and snow are the amounts in the preceding hour, in inches per hour.
+- Missing forecast data is **never treated as 0**. If the needed time is past the end of the forecast, or the weather service fails, the app shows an error instead of a risk level.
 - Heatmap slider hour 0 is the departure time. The date and time are shown next to the slider so it is clear which moment the forecast is for.
 - If an estimated arrival time falls outside the weather forecast range, the value is not estimated and an error is shown.
 

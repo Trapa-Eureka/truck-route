@@ -146,7 +146,7 @@
 | 400 | `DEPARTURE_IN_PAST` | 출발 시각이 과거 | |
 | 422 | `GEOCODE_NOT_FOUND` | 주소를 좌표로 바꾸지 못함 | `field`(`origin`/`destination`) |
 | 422 | `NO_ROUTE` | TomTom이 경로를 하나도 주지 않음 | |
-| 422 | `FORECAST_OUT_OF_RANGE` | 필요한 시간이 예보 끝을 넘음 | `forecast_end`(ISO) |
+| 422 | `FORECAST_OUT_OF_RANGE` | 필요한 시간이 예보 끝을 넘음 | `forecast_end`(ISO, 예보가 있는 마지막 시각. 알아내지 못하면 생략) |
 | 502 | `ROUTING_UNAVAILABLE` | TomTom 오류·시간 초과 | |
 | 502 | `WEATHER_UNAVAILABLE` | Open-Meteo 오류·시간 초과·`null` 값 | |
 
